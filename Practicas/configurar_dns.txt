@@ -2,6 +2,7 @@
 
 # Variables de Netplan
 NETPLAN_DIR="/etc/netplan"
+STATIC_CONFIG="$NETPLAN_DIR/static.bak"
 ORIGINAL_CONFIG="$NETPLAN_DIR/original.bak"
 ACTIVE_CONFIG="$NETPLAN_DIR/50-cloud-init.yaml"
 
@@ -12,5 +13,14 @@ if [ -f "$ORIGINAL_CONFIG" ]; then
     echo "[INFO] Red restaurada temporalmente para descargar paquetes."
 else
     echo "[ERROR] No se encontró el archivo original.bak. Revisa la configuración de Netplan."
+    exit 1
+fi
+
+# Instalando Bind9
+echo "[INFO] Instalando Bind9..."
+sudo apt update && sudo apt install -y bind9 bind9utils
+
+if [ $? -ne 0 ]; then
+    echo "[ERROR] No se pudo instalar Bind9. Revisa la conexión a Internet."
     exit 1
 fi
