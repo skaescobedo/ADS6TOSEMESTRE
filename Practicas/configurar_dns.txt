@@ -24,3 +24,13 @@ if [ $? -ne 0 ]; then
     echo "[ERROR] No se pudo instalar Bind9. Revisa la conexión a Internet."
     exit 1
 fi
+
+echo "[INFO] Restaurando configuración de IP estática..."
+if [ -f "$STATIC_CONFIG" ]; then
+    sudo cp "$STATIC_CONFIG" "$ACTIVE_CONFIG"
+    sudo netplan apply
+    echo "[INFO] Configuración de IP estática aplicada."
+else
+    echo "[ERROR] No se encontró el archivo static.bak. Revisa la configuración de Netplan."
+    exit 1
+fi
