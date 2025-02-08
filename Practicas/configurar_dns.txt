@@ -6,6 +6,11 @@ STATIC_CONFIG="$NETPLAN_DIR/static.bak"
 ORIGINAL_CONFIG="$NETPLAN_DIR/original.bak"
 ACTIVE_CONFIG="$NETPLAN_DIR/50-cloud-init.yaml"
 
+# Variables de Bind9
+DNS_ZONE_FILE="/etc/bind/db.reprobados.com"
+NAMED_CONF="/etc/bind/named.conf"
+NAMED_OPTIONS="/etc/bind/named.conf.options"
+
 echo "[INFO] Restaurando configuración de red para tener acceso a Internet..."
 if [ -f "$ORIGINAL_CONFIG" ]; then
     sudo cp "$ORIGINAL_CONFIG" "$ACTIVE_CONFIG"
@@ -34,3 +39,20 @@ else
     echo "[ERROR] No se encontró el archivo static.bak. Revisa la configuración de Netplan."
     exit 1
 fi
+
+echo "[INFO] Configurando Bind9 para la zona reprobados.com..."
+
+# Crear archivo named.conf
+sudo bash -c "cat > $NAMED_CONF" <<EOF
+// Archivo de configuración principal de BIND9
+include "/etc/bind/named.conf.options";
+include "/etc/bind/named.conf.local";
+include "/etc/bind/named.conf.default-zones";
+
+zone "reprobados.com" IN {
+    type master;
+    file "/etc/bind/db.reprobados.com";
+};
+EOF
+
+echo "[INFO] Archivo named.conf configurado correctamente."
