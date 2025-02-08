@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Variables de Netplan
+NETPLAN_DIR="/etc/netplan"
+ORIGINAL_CONFIG="$NETPLAN_DIR/original.bak"
+ACTIVE_CONFIG="$NETPLAN_DIR/50-cloud-init.yaml"
+
+echo "📌 Restaurando configuración de red para tener acceso a Internet..."
+if [ -f "$ORIGINAL_CONFIG" ]; then
+    sudo cp "$ORIGINAL_CONFIG" "$ACTIVE_CONFIG"
+    sudo netplan apply
+    echo "✅ Red restaurada temporalmente para descargar paquetes."
+else
+    echo "❌ ERROR: No se encontró el archivo original.bak. Revisa la configuración de Netplan."
+    exit 1
+fi
