@@ -77,3 +77,56 @@ webserv IN  A   192.168.1.102
 EOF
 
 echo "[INFO] Archivo de zona creado correctamente."
+
+# Configurar named.conf.options
+echo "[INFO] Configurando named.conf.options..."
+
+sudo bash -c "cat > $NAMED_OPTIONS" <<EOF
+options {
+    directory "/var/cache/bind";
+
+    allow-query { any; };
+    recursion yes;
+    listen-on { any; };
+    listen-on-v6 { any; };
+
+    forwarders {
+        0.0.0.0;
+        0.0.4.4;
+    };
+
+    dnssec-validation auto;
+};
+EOF
+
+echo "[INFO] Archivo named.conf.options configurado correctamente."
+
+# Verificar la configuración de Bind9
+echo "[INFO] Verificando configuración de Bind9..."
+if sudo named-checkconf; then
+    echo "[INFO] named.conf sin errores."
+else
+    echo "[ERROR] ERROR en named.conf. Revisa la configuración."
+    exit 1
+fi
+
+if sudo named-checkzone reprobados.com $DNS_ZONE_FILE; then
+    echo "[INFO] Archivo de zona correcto."
+else
+    echo "[ERROR] ERROR en el archivo de zona. Revisa la configuración."
+    exit 1
+fi
+
+# Reiniciar Bind9 para aplicar cambios
+echo "[INFO] Reiniciando Bind9..."
+sudo systemctl restart bind9
+
+# Verificar si el servicio está activo
+if sudo systemctl status bind9 | grep "active (running)"; then
+    echo "[INFO] Bind9 está corriendo correctamente."
+else
+    echo "[ERROR] ERROR al iniciar Bind9. Revisa logs con: sudo journalctl -xe"
+    exit 1
+fi
+
+echo "[INFO] Configuración completada. Prueba con: nslookup reprobados.com 192.168.1.10"
