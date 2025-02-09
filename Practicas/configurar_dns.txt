@@ -56,3 +56,24 @@ zone "reprobados.com" IN {
 EOF
 
 echo "[INFO] Archivo named.conf configurado correctamente."
+
+# Crear el archivo de zona DNS
+echo "[INFO] Creando archivo de zona para reprobados.com en $DNS_ZONE_FILE..."
+
+sudo bash -c "cat > $DNS_ZONE_FILE" <<EOF
+\$TTL 604800
+@   IN  SOA luis.local. root.localhost. (
+        3   ; Serial
+        604800  ; Refresh
+        86400   ; Retry
+        2419200 ; Expire
+        604800  ; Negative Cache TTL
+)
+
+@       IN  NS  localhost.
+@       IN  A   192.168.1.10
+www     IN  A   192.168.1.10
+webserv IN  A   192.168.1.102
+EOF
+
+echo "[INFO] Archivo de zona creado correctamente."
