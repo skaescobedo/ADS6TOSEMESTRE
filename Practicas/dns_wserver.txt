@@ -1,8 +1,8 @@
 ﻿# Instalar DNS Server
-Write-Host "Instalando Servidor DNS..."
+Write-Host " [INFO] Instalando Servidor DNS"
 Install-WindowsFeature -Name DNS -IncludeManagementTools
 
-# Configurar la ip a estática
+# Configurar ip estática
 $ip = "192.168.1.10"
 $mask = "255.255.255.0"
 $gateway = "192.168.1.1"
@@ -21,3 +21,4 @@ Add-DnsServerResourceRecordA -ZoneName "reprobados.com" -Name "www" -IPv4Address
 
 # Reiniciar el servicio DNS
 Restart-Service DNS
+Write-Host "[INFO] Terminado con éxito"
