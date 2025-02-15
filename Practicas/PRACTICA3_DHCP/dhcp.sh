@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Instalar paquetes necesarios
-sudo apt update && sudo apt install -y isc-dhcp-server
+sudo apt update && sudo apt install -y isc-dhcp-server ipcalc
 
 # Solicitar interfaz de red
 read -p "Ingrese la interfaz de red para el servidor DHCP (ejemplo: eth0): " INTERFACE
@@ -75,3 +75,9 @@ echo "network:
 
 # Aplicar configuración de Netplan
 sudo netplan apply
+
+# Calcular la máscara de red a partir del prefijo
+NETMASK=$(ipcalc $STATIC_IP/$PREFIX | grep -oP 'Netmask:\s+\K[0-9.]+')
+
+# Mostrar la máscara de red antes de leer el rango de direcciones IP
+echo "La máscara de red calculada es: $NETMASK"
