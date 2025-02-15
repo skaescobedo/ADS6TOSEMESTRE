@@ -81,3 +81,31 @@ NETMASK=$(ipcalc $STATIC_IP/$PREFIX | grep -oP 'Netmask:\s+\K[0-9.]+')
 
 # Mostrar la máscara de red antes de leer el rango de direcciones IP
 echo "La máscara de red calculada es: $NETMASK"
+
+# Solicitar el rango de direcciones IP para asignar
+read -p "Ingrese la dirección de red (ejemplo: 192.168.1.0): " NETWORK
+read -p "Ingrese el rango de IPs para asignar (ejemplo: 192.168.1.100 192.168.1.200): " RANGE
+
+# Configurar la interfaz de red
+sudo sed -i "s/^INTERFACESv4=.*/INTERFACESv4=\"$INTERFACE\"/" /etc/default/isc-dhcp-server
+
+# Crear configuración DHCP
+cat <<EOT | sudo tee /etc/dhcp/dhcpd.conf
+option domain-name "localdomain";
+option domain-name-servers $DNS1, $DNS2;
+default-lease-time 600;
+max-lease-time 7200;
+
+subnet $NETWORK netmask $NETMASK {
+    range $RANGE;
+    option routers $GATEWAY;
+    option subnet-mask $NETMASK;
+    option broadcast-address $(echo $NETWORK | awk -F. '{print $1"."$2"."$3".255"}');
+    option domain-name-servers $DNS1, $DNS2;
+}
+EOT
+
+# Reiniciar y habilitar el servicio DHCP
+sudo systemctl restart isc-dhcp-server
+
+echo "Configuración del servidor DHCP completada. Verifique que el servicio esté corriendo con: systemctl status isc-dhcp-server"
