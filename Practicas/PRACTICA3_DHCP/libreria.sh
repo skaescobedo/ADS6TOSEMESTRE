@@ -97,3 +97,48 @@ subnet $RED netmask $MASCARA_RED {
 EOT
     sudo systemctl restart isc-dhcp-server
 }
+
+# Función para configurar Bind9
+configurar_bind9() {
+    local NAMED_CONF="/etc/bind/named.conf"
+    local NAMED_OPTIONS="/etc/bind/named.conf.options"
+    local DNS_ZONE_FILE="/etc/bind/db.reprobados.com"
+    
+    echo "[INFO] Configurando Bind9 para la zona reprobados.com..."
+    
+    sudo bash -c "cat > $NAMED_CONF" <<EOF
+include "/etc/bind/named.conf.options";
+include "/etc/bind/named.conf.local";
+include "/etc/bind/named.conf.default-zones";
+
+zone "reprobados.com" IN {
+    type master;
+    file "/etc/bind/db.reprobados.com";
+};
+EOF
+    
+    echo "[INFO] Configurando named.conf.options..."
+    sudo bash -c "cat > $NAMED_OPTIONS" <<EOF
+options {
+    directory "/var/cache/bind";
+    allow-query { any; };
+    recursion yes;
+    listen-on { any; };
+    listen-on-v6 { any; };
+    forwarders {
+        $DNS_PRIMARIO;
+        $DNS_SECUNDARIO;
+    };
+    dnssec-validation auto;
+};
+EOF
+    
+    echo "[INFO] Reiniciando Bind9..."
+    sudo systemctl restart bind9
+    if sudo systemctl status bind9 | grep "active (running)"; then
+        echo "[INFO] Bind9 está corriendo correctamente."
+    else
+        echo "[ERROR] ERROR al iniciar Bind9."
+        exit 1
+    fi
+}
