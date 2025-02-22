@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # Importar el módulo con las funciones
-source dhcp_modulo.sh
-
+source libreria.sh
 # Instalación de Bind9
 echo "[INFO] Instalando Bind9..."
 sudo apt update && sudo apt install -y bind9 bind9utils

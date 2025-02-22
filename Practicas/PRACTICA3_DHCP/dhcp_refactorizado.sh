@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Importar el módulo con las funciones
-source dhcp_modulo.sh
+source libreria.sh
 
 # Instalar paquetes necesarios
 sudo apt update && sudo apt install -y isc-dhcp-server ipcalc
