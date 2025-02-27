@@ -8,7 +8,7 @@ sudo apt update && sudo apt install -y vsftpd acl ufw
 echo "Configurando vsftpd..."
 sudo cp /etc/vsftpd.conf /etc/vsftpd.conf.bak  # Hacer una copia de seguridad
 sudo bash -c 'cat > /etc/vsftpd.conf' <<EOF
-anonymous_enable=YES
+anonymous_enable=NO
 local_enable=YES
 write_enable=YES
 local_umask=022
@@ -19,10 +19,15 @@ connect_from_port_20=YES
 listen=YES
 listen_ipv6=NO
 pam_service_name=vsftpd
-user_sub_token=$USER
+user_sub_token=\$USER
 chroot_local_user=YES
 allow_writeable_chroot=YES
 ftpd_banner=Bienvenido al servidor FTP de Ubuntu.
+
+# Configuración de modo pasivo
+pasv_enable=YES
+pasv_min_port=40000
+pasv_max_port=50000
 EOF
 
 # Crear directorios base
@@ -74,7 +79,7 @@ crear_usuario() {
             continue
         fi
 
-        sudo useradd -m -d $FTP_ROOT/$username -s /bin/false -G $group $username
+        sudo useradd -m -d $FTP_ROOT/$username -s /bin/bash -G $group $username
         echo "Ingrese la contraseña para el usuario $username:"
         sudo passwd $username
 
@@ -97,7 +102,9 @@ crear_usuario
 
 # Configurar reglas de firewall
 echo "Configurando firewall para permitir FTP..."
+sudo ufw allow 20/tcp
 sudo ufw allow 21/tcp
+sudo ufw allow 40000:50000/tcp  # Puertos de modo pasivo
 
 # Reiniciar vsftpd
 echo "Reiniciando vsftpd..."
