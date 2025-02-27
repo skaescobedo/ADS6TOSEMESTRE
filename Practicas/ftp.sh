@@ -34,6 +34,14 @@ mkdir -p $GENERAL_DIR
 mkdir -p $GROUP_DIR/reprobados
 mkdir -p $GROUP_DIR/recursadores
 
+# Montar el directorio FTP en /home/ftp
+echo "Montando el directorio FTP..."
+sudo mkdir -p /home/ftp
+sudo mount --bind /srv/ftp /home/ftp
+
+# Hacer el montaje persistente
+echo "/srv/ftp /home/ftp none bind 0 0" | sudo tee -a /etc/fstab
+
 # Permisos para acceso anónimo solo lectura en "general"
 sudo chmod 755 $GENERAL_DIR
 sudo chown ftp:nogroup $GENERAL_DIR
@@ -95,7 +103,7 @@ sudo ufw allow 21/tcp
 echo "Reiniciando vsftpd..."
 sudo systemctl restart vsftpd
 
-# Habilitar firewall si aún no está habilitado
+# Habilitar firewall si aún no está activo
 echo "Habilitando UFW si no está activo..."
 sudo ufw enable
 
