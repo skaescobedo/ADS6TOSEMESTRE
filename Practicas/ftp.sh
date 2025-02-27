@@ -8,7 +8,14 @@ sudo apt update && sudo apt install -y vsftpd acl ufw
 echo "Configurando vsftpd..."
 sudo cp /etc/vsftpd.conf /etc/vsftpd.conf.bak  # Hacer una copia de seguridad
 sudo bash -c 'cat > /etc/vsftpd.conf' <<EOF
-anonymous_enable=NO
+# Habilitar acceso anónimo con solo lectura en /srv/ftp/general
+anonymous_enable=YES
+anon_root=/srv/ftp/general
+anon_upload_enable=NO
+anon_mkdir_write_enable=NO
+anon_other_write_enable=NO
+
+# Configuración de usuarios locales
 local_enable=YES
 write_enable=YES
 local_umask=022
@@ -20,14 +27,18 @@ listen=YES
 listen_ipv6=NO
 pam_service_name=vsftpd
 user_sub_token=\$USER
-chroot_local_user=YES
+
+# Permitir que los usuarios puedan navegar entre las carpetas permitidas
+chroot_local_user=NO
 allow_writeable_chroot=YES
-ftpd_banner=Bienvenido al servidor FTP de Ubuntu.
 
 # Configuración de modo pasivo
 pasv_enable=YES
 pasv_min_port=40000
 pasv_max_port=50000
+
+# Mensaje de bienvenida
+ftpd_banner=Bienvenido al servidor FTP de Ubuntu.
 EOF
 
 # Crear directorios base
@@ -47,7 +58,7 @@ sudo mount --bind /srv/ftp /home/ftp
 # Hacer el montaje persistente
 echo "/srv/ftp /home/ftp none bind 0 0" | sudo tee -a /etc/fstab
 
-# Permisos para acceso anónimo solo lectura en "general"
+# Configurar permisos para acceso anónimo con solo lectura en "general"
 sudo chmod 755 $GENERAL_DIR
 sudo chown ftp:nogroup $GENERAL_DIR
 
@@ -55,6 +66,15 @@ sudo chown ftp:nogroup $GENERAL_DIR
 echo "Creando grupos de usuarios..."
 sudo groupadd reprobados
 sudo groupadd recursadores
+
+# Configurar permisos de escritura en carpetas de grupo
+sudo chmod 770 $GROUP_DIR/reprobados
+sudo chmod 770 $GROUP_DIR/recursadores
+sudo chown root:reprobados $GROUP_DIR/reprobados
+sudo chown root:recursadores $GROUP_DIR/recursadores
+
+# Permitir escritura de usuarios autenticados en la carpeta general
+sudo chmod 777 $GENERAL_DIR
 
 # Función para crear usuarios
 crear_usuario() {
