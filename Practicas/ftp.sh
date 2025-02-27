@@ -2,7 +2,7 @@
 
 # Actualizar repositorios e instalar vsftpd
 echo "Instalando vsftpd..."
-sudo apt update && sudo apt install -y vsftpd
+sudo apt update && sudo apt install -y vsftpd acl ufw
 
 # Configurar vsftpd
 echo "Configurando vsftpd..."
@@ -87,8 +87,16 @@ crear_usuario() {
 # Agregar usuarios de forma interactiva
 crear_usuario
 
+# Configurar reglas de firewall
+echo "Configurando firewall para permitir FTP..."
+sudo ufw allow 21/tcp
+
 # Reiniciar vsftpd
 echo "Reiniciando vsftpd..."
 sudo systemctl restart vsftpd
+
+# Habilitar firewall si aún no está habilitado
+echo "Habilitando UFW si no está activo..."
+sudo ufw enable
 
 echo "Configuración completada. Servidor FTP listo para usar."
