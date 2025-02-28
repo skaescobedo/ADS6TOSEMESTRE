@@ -1,137 +1,126 @@
-#!/bin/bash
+# Función para validar contraseña
+function Validar-Contraseña {
+    param (
+        [string]$password
+    )
 
-# Actualizar repositorios e instalar vsftpd
-echo "Instalando vsftpd..."
-sudo apt update && sudo apt install -y vsftpd acl ufw
-
-# Configurar vsftpd
-echo "Configurando vsftpd..."
-sudo cp /etc/vsftpd.conf /etc/vsftpd.conf.bak  # Hacer una copia de seguridad
-sudo bash -c 'cat > /etc/vsftpd.conf' <<EOF
-# Habilitar acceso anónimo con solo lectura en /srv/ftp/general
-anonymous_enable=YES
-anon_root=/srv/ftp/general
-anon_upload_enable=NO
-anon_mkdir_write_enable=NO
-anon_other_write_enable=NO
-
-# Configuración de usuarios locales
-local_enable=YES
-write_enable=YES
-local_umask=022
-dirmessage_enable=YES
-use_localtime=YES
-xferlog_enable=YES
-connect_from_port_20=YES
-listen=YES
-listen_ipv6=NO
-pam_service_name=vsftpd
-user_sub_token=\$USER
-
-# Permitir que los usuarios puedan navegar entre las carpetas permitidas
-chroot_local_user=NO
-allow_writeable_chroot=YES
-
-# Configuración de modo pasivo
-pasv_enable=YES
-pasv_min_port=40000
-pasv_max_port=50000
-
-# Mensaje de bienvenida
-ftpd_banner=Bienvenido al servidor FTP de Ubuntu.
-EOF
-
-# Crear directorios base
-echo "Creando directorios FTP..."
-FTP_ROOT="/srv/ftp"
-GENERAL_DIR="$FTP_ROOT/general"
-GROUP_DIR="$FTP_ROOT/grupos"
-mkdir -p $GENERAL_DIR
-mkdir -p $GROUP_DIR/reprobados
-mkdir -p $GROUP_DIR/recursadores
-
-# Montar el directorio FTP en /home/ftp
-echo "Montando el directorio FTP..."
-sudo mkdir -p /home/ftp
-sudo mount --bind /srv/ftp /home/ftp
-
-# Hacer el montaje persistente
-echo "/srv/ftp /home/ftp none bind 0 0" | sudo tee -a /etc/fstab
-
-# Configurar permisos para acceso anónimo con solo lectura en "general"
-sudo chmod 755 $GENERAL_DIR
-sudo chown ftp:nogroup $GENERAL_DIR
-
-# Crear grupos
-echo "Creando grupos de usuarios..."
-sudo groupadd reprobados
-sudo groupadd recursadores
-
-# Configurar permisos de escritura en carpetas de grupo
-sudo chmod 770 $GROUP_DIR/reprobados
-sudo chmod 770 $GROUP_DIR/recursadores
-sudo chown root:reprobados $GROUP_DIR/reprobados
-sudo chown root:recursadores $GROUP_DIR/recursadores
-
-# Permitir escritura de usuarios autenticados en la carpeta general
-sudo chmod 777 $GENERAL_DIR
-
-# Función para crear usuarios
-crear_usuario() {
-    while true; do
-        echo -n "Ingrese el nombre del usuario (o 'salir' para finalizar): "
-        read username
-
-        if [[ "$username" == "salir" ]]; then
-            echo "Finalizando creación de usuarios."
-            break
-        fi
-
-        echo -n "Seleccione el grupo (1: reprobados, 2: recursadores): "
-        read group_option
-
-        if [ "$group_option" == "1" ]; then
-            group="reprobados"
-        elif [ "$group_option" == "2" ]; then
-            group="recursadores"
-        else
-            echo "Opción inválida. Inténtelo de nuevo."
-            continue
-        fi
-
-        sudo useradd -m -d $FTP_ROOT/$username -s /bin/bash -G $group $username
-        echo "Ingrese la contraseña para el usuario $username:"
-        sudo passwd $username
-
-        # Crear y configurar directorios de usuario
-        sudo mkdir -p $FTP_ROOT/$username
-        sudo chown $username:$username $FTP_ROOT/$username
-        sudo chmod 755 $FTP_ROOT/$username
-
-        # Permisos sobre las carpetas
-        sudo setfacl -m u:$username:rwx $GENERAL_DIR
-        sudo setfacl -m u:$username:rwx $FTP_ROOT/$username
-        sudo setfacl -m u:$username:rwx $GROUP_DIR/$group
-
-        echo "Usuario $username creado y agregado al grupo $group."
-    done
+    if ($password.Length -lt 8) {
+        Write-Host "❌ La contraseña debe tener al menos 8 caracteres."
+        return $false
+    }
+    if ($password -notmatch "[A-Z]") {
+        Write-Host "❌ La contraseña debe contener al menos una letra mayúscula."
+        return $false
+    }
+    if ($password -notmatch "[a-z]") {
+        Write-Host "❌ La contraseña debe contener al menos una letra minúscula."
+        return $false
+    }
+    if ($password -notmatch "[0-9]") {
+        Write-Host "❌ La contraseña debe contener al menos un número."
+        return $false
+    }
+    if ($password -notmatch "[\!\@\#\$\%\^\&\*\(\)\_\+\.\,\;\:]") {
+        Write-Host "❌ La contraseña debe contener al menos un carácter especial (!@#$%^&*()_+.,;:)"
+        return $false
+    }
+    return $true
 }
 
-# Agregar usuarios de forma interactiva
-crear_usuario
+# Instalar rol FTP en IIS
+Install-WindowsFeature -Name Web-FTP-Server -IncludeAllSubFeature -IncludeManagementTools
+
+# Crear estructura de directorios
+$ftpRoot = "C:\FTP"
+$generalDir = "$ftpRoot\general"
+$groupDir = "$ftpRoot\grupos"
+$reprobadosDir = "$groupDir\reprobados"
+$recursadoresDir = "$groupDir\recursadores"
+
+New-Item -ItemType Directory -Path $generalDir -Force
+New-Item -ItemType Directory -Path $reprobadosDir -Force
+New-Item -ItemType Directory -Path $recursadoresDir -Force
+
+# Crear grupos locales (silenciosamente si ya existen)
+New-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue
+New-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue
+
+# Crear usuarios y asignar a grupos
+while ($true) {
+    $username = Read-Host "Ingrese nombre de usuario (o 'salir' para terminar)"
+    if ($username -eq 'salir') { break }
+
+    # Validar contraseña
+    $validPassword = $false
+    while (-not $validPassword) {
+        $plainPassword = Read-Host "Ingrese contraseña para $username"
+        $validPassword = Validar-Contraseña -password $plainPassword
+    }
+    $securePassword = ConvertTo-SecureString -String $plainPassword -AsPlainText -Force
+
+    $groupOption = Read-Host "Seleccione grupo (1: reprobados, 2: recursadores)"
+    if ($groupOption -eq "1") { $groupName = "reprobados" }
+    elseif ($groupOption -eq "2") { $groupName = "recursadores" }
+    else { Write-Host "❌ Opción inválida"; continue }
+
+    # Crear usuario local
+    Remove-LocalUser -Name $username -ErrorAction SilentlyContinue  # Por si ya existe
+    New-LocalUser -Name $username -Password $securePassword -FullName $username -Description "Usuario FTP"
+
+    if (!(Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
+        Write-Host "❌ Error: No se pudo crear el usuario $username."
+        continue
+    }
+
+    # Asignar usuario al grupo
+    Add-LocalGroupMember -Group $groupName -Member $username
+
+    # Crear carpeta personal y asignar permisos
+    $userDir = "$ftpRoot\$username"
+    New-Item -ItemType Directory -Path $userDir -Force
+
+    # Asignar permisos usando &
+    & icacls $userDir "/inheritance:r"
+    & icacls $userDir "/grant", "${username}:(OI)(CI)F"
+    & icacls "$groupDir\$groupName" "/grant", "${username}:(OI)(CI)M"
+
+    Write-Host "✅ Usuario $username creado y agregado al grupo $groupName."
+}
+
+# Configurar permisos generales
+& icacls $generalDir "/inheritance:r"
+& icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
+& icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
 
 # Configurar reglas de firewall
-echo "Configurando firewall para permitir FTP..."
-sudo ufw allow 20/tcp
-sudo ufw allow 21/tcp
-sudo ufw allow 40000:50000/tcp  # Puertos de modo pasivo
+New-NetFirewallRule -DisplayName "Allow FTP Port 21" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 21
+New-NetFirewallRule -DisplayName "Allow FTP Passive Ports" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 40000-50000
 
-# Reiniciar vsftpd
-echo "Reiniciando vsftpd..."
-sudo systemctl restart vsftpd
+# Configurar sitio FTP en IIS
+Import-Module WebAdministration
 
-# Habilitar firewall si aún no está activo
-echo "Habilitando UFW si no está activo..."
-sudo ufw enable
+if (!(Test-Path "IIS:\Sites\FTP-Sitio")) {
+    New-WebFtpSite -Name "FTP-Sitio" -PhysicalPath $ftpRoot -Port 21 -Force
 
-echo "Configuración completada. Servidor FTP listo para usar."
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
+
+    # Permitir acceso anónimo solo lectura a /general
+    Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
+        accessType="Allow"; users="*"; roles=""; permissions="Read"
+    }
+
+    # Permitir acceso completo a usuarios autenticados
+    Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
+        accessType="Allow"; users=""; roles=""; permissions="Read,Write"
+    }
+
+    Write-Host "✅ Sitio FTP 'FTP-Sitio' creado correctamente."
+} else {
+    Write-Host "ℹ️ El sitio FTP 'FTP-Sitio' ya existe."
+}
+
+Write-Host "🎉 Configuración completada. Revisa el Administrador de IIS."
