@@ -1,4 +1,6 @@
+# =============================
 # Script Completo: Configuración FTP IIS con User Isolation
+# =============================
 
 # Variables
 $ftpRoot = "C:\FTP"
@@ -49,38 +51,48 @@ while ($true) {
 
     & icacls $userDir "/inheritance:r"
     & icacls $userDir "/grant", "${username}:(OI)(CI)F"
-    & icacls "$groupDir\$groupName" "/grant", "${username}:(OI)(CI)M"
+
+    # Acceso a su carpeta de grupo y denegación a la otra
+    if ($groupName -eq "reprobados") {
+        & icacls "$groupDir\reprobados" "/grant", "${username}:(OI)(CI)M"
+        & icacls "$groupDir\recursadores" "/deny", "${username}:(OI)(CI)F"
+    } elseif ($groupName -eq "recursadores") {
+        & icacls "$groupDir\recursadores" "/grant", "${username}:(OI)(CI)M"
+        & icacls "$groupDir\reprobados" "/deny", "${username}:(OI)(CI)F"
+    }
 
     Write-Host "Usuario $username creado y agregado al grupo $groupName."
 }
 
-# 5. Configurar permisos generales
+# 5. Permisos generales (acceso anónimo solo lectura al general)
 & icacls $generalDir "/inheritance:r"
 & icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
 & icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
 
-# 6. Configurar reglas de firewall
+# 6. Reglas de firewall FTP
 New-NetFirewallRule -DisplayName "Allow FTP Port 21" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 21
 New-NetFirewallRule -DisplayName "Allow FTP Passive Ports" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 40000-50000
 
-# 7. Configurar y crear el sitio FTP
+# 7. Configurar sitio FTP en IIS
 Import-Module WebAdministration
 
 if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
     New-WebFtpSite -Name $ftpSiteName -PhysicalPath $ftpRoot -Port 21 -Force
 
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
-    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $false
+    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
 
     Clear-WebConfiguration "/system.ftpServer/security/authorization"
     Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
-        accessType = "Allow"; users = "*"; roles = ""; permissions = "Read"
+        accessType = "Allow"; users = "*"; roles = ""; permissions = "Read,Write"
     }
+
+    # Regla para acceso anónimo a /general (solo lectura)
     Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
-        accessType = "Allow"; users = ""; roles = ""; permissions = "Read,Write"
+        accessType = "Allow"; users = ""; roles = ""; permissions = "Read"
     }
 
     Write-Host "Sitio FTP creado correctamente."
@@ -92,7 +104,7 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
 Set-WebConfigurationProperty -Filter "/system.ftpServer/userIsolation" -Name "mode" -Value "IsolateUsers" -PSPath "IIS:\Sites\$ftpSiteName"
 Write-Host "User Isolation configurado correctamente."
 
-# 9. Configurar Physical Path (Ruta física raíz) en Advanced Settings
+# 9. Configurar Physical Path (Ruta física raíz)
 Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name physicalPath -Value $ftpRoot
 Write-Host "Physical Path configurado a $ftpRoot."
 
