@@ -5,23 +5,23 @@ function Validar-Contraseña {
     )
 
     if ($password.Length -lt 8) {
-        Write-Host "❌ La contraseña debe tener al menos 8 caracteres."
+        Write-Host "La contraseña debe tener al menos 8 caracteres."
         return $false
     }
     if ($password -notmatch "[A-Z]") {
-        Write-Host "❌ La contraseña debe contener al menos una letra mayúscula."
+        Write-Host "La contraseña debe contener al menos una letra mayúscula."
         return $false
     }
     if ($password -notmatch "[a-z]") {
-        Write-Host "❌ La contraseña debe contener al menos una letra minúscula."
+        Write-Host "La contraseña debe contener al menos una letra minúscula."
         return $false
     }
     if ($password -notmatch "[0-9]") {
-        Write-Host "❌ La contraseña debe contener al menos un número."
+        Write-Host "La contraseña debe contener al menos un número."
         return $false
     }
     if ($password -notmatch "[\!\@\#\$\%\^\&\*\(\)\_\+\.\,\;\:]") {
-        Write-Host "❌ La contraseña debe contener al menos un carácter especial (!@#$%^&*()_+.,;:)"
+        Write-Host "La contraseña debe contener al menos un carácter especial (!@#$%^&*()_+.,;:)"
         return $false
     }
     return $true
@@ -61,14 +61,14 @@ while ($true) {
     $groupOption = Read-Host "Seleccione grupo (1: reprobados, 2: recursadores)"
     if ($groupOption -eq "1") { $groupName = "reprobados" }
     elseif ($groupOption -eq "2") { $groupName = "recursadores" }
-    else { Write-Host "❌ Opción inválida"; continue }
+    else { Write-Host "Opción inválida"; continue }
 
     # Crear usuario local
     Remove-LocalUser -Name $username -ErrorAction SilentlyContinue  # Por si ya existe
     New-LocalUser -Name $username -Password $securePassword -FullName $username -Description "Usuario FTP"
 
     if (!(Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
-        Write-Host "❌ Error: No se pudo crear el usuario $username."
+        Write-Host "Error: No se pudo crear el usuario $username."
         continue
     }
 
@@ -84,7 +84,7 @@ while ($true) {
     & icacls $userDir "/grant", "${username}:(OI)(CI)F"
     & icacls "$groupDir\$groupName" "/grant", "${username}:(OI)(CI)M"
 
-    Write-Host "✅ Usuario $username creado y agregado al grupo $groupName."
+    Write-Host "Usuario $username creado y agregado al grupo $groupName."
 }
 
 # Configurar permisos generales
@@ -118,9 +118,9 @@ if (!(Test-Path "IIS:\Sites\FTP-Sitio")) {
         accessType="Allow"; users=""; roles=""; permissions="Read,Write"
     }
 
-    Write-Host "✅ Sitio FTP 'FTP-Sitio' creado correctamente."
+    Write-Host "Sitio FTP 'FTP-Sitio' creado correctamente."
 } else {
-    Write-Host "ℹ️ El sitio FTP 'FTP-Sitio' ya existe."
+    Write-Host "El sitio FTP 'FTP-Sitio' ya existe."
 }
 
-Write-Host "🎉 Configuración completada. Revisa el Administrador de IIS."
+Write-Host "Configuración completada. Revisa el Administrador de IIS."
