@@ -27,7 +27,7 @@ while ($true) {
     elseif ($groupOption -eq "2") { $groupName = "recursadores" }
     else { Write-Host "Opción inválida"; continue }
 
-    # Crear usuario y agregar al grupo
+    # Crear usuario y agregarlo al grupo
     New-LocalUser -Name $username -Password $password -FullName $username -Description "Usuario FTP" -ErrorAction SilentlyContinue
     Add-LocalGroupMember -Group $groupName -Member $username
 
@@ -35,18 +35,18 @@ while ($true) {
     $userDir = "$ftpRoot\$username"
     New-Item -ItemType Directory -Path $userDir -Force
 
-    # Asignar permisos con formato seguro usando ${}
-    icacls $userDir /inheritance:r
-    icacls $userDir /grant "${username}:(OI)(CI)F"
-    icacls "$groupDir\$groupName" /grant "${username}:(OI)(CI)M"
+    # Asignar permisos usando el call operator (&)
+    & icacls $userDir "/inheritance:r"
+    & icacls $userDir "/grant", "${username}:(OI)(CI)F"
+    & icacls "$groupDir\$groupName" "/grant", "${username}:(OI)(CI)M"
 
     Write-Host "Usuario $username creado y agregado al grupo $groupName."
 }
 
-# Permisos generales para carpeta "general" (solo lectura para todos, escritura para autenticados)
-icacls $generalDir /inheritance:r
-icacls $generalDir /grant "Everyone:(OI)(CI)R"
-icacls $generalDir /grant "Authenticated Users:(OI)(CI)M"
+# Configurar permisos para carpeta general
+& icacls $generalDir "/inheritance:r"
+& icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
+& icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
 
 # Configurar reglas de firewall para FTP y modo pasivo
 New-NetFirewallRule -DisplayName "Allow FTP Port 21" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 21
@@ -57,15 +57,12 @@ Import-Module WebAdministration
 
 if (!(Test-Path "IIS:\Sites\FTP-Sitio")) {
     New-WebFtpSite -Name "FTP-Sitio" -PhysicalPath $ftpRoot -Port 21 -Force
+
+    # Configurar autenticación
     Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
-    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
-    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
 
-    # Configurar modo pasivo
-    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
-
-    # Permitir acceso anónimo a /general
+    # Permitir acceso anónimo solo lectura a /general
     Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
         accessType="Allow"; 
         users="*"; 
@@ -81,9 +78,16 @@ if (!(Test-Path "IIS:\Sites\FTP-Sitio")) {
         permissions="Read,Write"
     }
 
-    Write-Host "Sitio FTP 'FTP-Sitio' creado y configurado en IIS."
+    # Configurar modo pasivo (puertos 40000-50000)
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
+
+    # Opcional: Permitir FTP sobre SSL (puede personalizarse según certificado)
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
+
+    Write-Host "Sitio FTP 'FTP-Sitio' creado y configurado correctamente."
 } else {
-    Write-Host "El sitio FTP ya existe. No se creó uno nuevo."
+    Write-Host "El sitio FTP 'FTP-Sitio' ya existe. No se realizaron cambios."
 }
 
-Write-Host "Configuración completada. Revisa IIS para confirmar que el sitio esté en funcionamiento."
+Write-Host "Configuración finalizada. Revisa el Administrador de IIS para confirmar."
