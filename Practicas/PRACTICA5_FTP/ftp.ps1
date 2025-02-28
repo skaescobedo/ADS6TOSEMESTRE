@@ -1,7 +1,6 @@
-# Configuración completa de FTP en IIS con User Isolation y permisos correctos
-# Requiere ejecución como administrador
+# Script Completo: Configuración FTP IIS con User Isolation
 
-# Variables globales
+# Variables
 $ftpRoot = "C:\FTP"
 $generalDir = "$ftpRoot\general"
 $groupDir = "$ftpRoot\grupos"
@@ -9,19 +8,19 @@ $reprobadosDir = "$groupDir\reprobados"
 $recursadoresDir = "$groupDir\recursadores"
 $ftpSiteName = "FTP-Sitio"
 
-# Instalar rol FTP e IIS
+# 1. Instalar rol FTP e IIS
 Install-WindowsFeature -Name Web-FTP-Server -IncludeAllSubFeature -IncludeManagementTools
 
-# Crear estructura de directorios
+# 2. Crear estructura de directorios
 New-Item -ItemType Directory -Path $generalDir -Force
 New-Item -ItemType Directory -Path $reprobadosDir -Force
 New-Item -ItemType Directory -Path $recursadoresDir -Force
 
-# Crear grupos locales
+# 3. Crear grupos locales
 New-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue
 New-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue
 
-# Crear usuarios y asignar a grupos
+# 4. Crear usuarios y asignar a grupos
 while ($true) {
     $username = Read-Host "Ingrese nombre de usuario (o 'salir' para terminar)"
     if ($username -eq 'salir') { break }
@@ -44,10 +43,10 @@ while ($true) {
 
     Add-LocalGroupMember -Group $groupName -Member $username
 
+    # Crear carpeta personal y asignar permisos
     $userDir = "$ftpRoot\$username"
     New-Item -ItemType Directory -Path $userDir -Force
 
-    # Configurar permisos NTFS
     & icacls $userDir "/inheritance:r"
     & icacls $userDir "/grant", "${username}:(OI)(CI)F"
     & icacls "$groupDir\$groupName" "/grant", "${username}:(OI)(CI)M"
@@ -55,16 +54,16 @@ while ($true) {
     Write-Host "Usuario $username creado y agregado al grupo $groupName."
 }
 
-# Configurar permisos generales
+# 5. Configurar permisos generales
 & icacls $generalDir "/inheritance:r"
 & icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
 & icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
 
-# Configurar reglas de firewall para FTP
+# 6. Configurar reglas de firewall
 New-NetFirewallRule -DisplayName "Allow FTP Port 21" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 21
 New-NetFirewallRule -DisplayName "Allow FTP Passive Ports" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 40000-50000
 
-# Configurar el sitio FTP en IIS con aislamiento y autenticación
+# 7. Configurar y crear el sitio FTP
 Import-Module WebAdministration
 
 if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
@@ -76,7 +75,6 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
 
-    # Configurar reglas de autorización
     Clear-WebConfiguration "/system.ftpServer/security/authorization"
     Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
         accessType = "Allow"; users = "*"; roles = ""; permissions = "Read"
@@ -90,11 +88,12 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
     Write-Host "El sitio FTP ya existe."
 }
 
-# Configurar aislamiento de usuarios
+# 8. Configurar User Isolation (Aislamiento de Usuarios)
 Set-WebConfigurationProperty -Filter "/system.ftpServer/userIsolation" -Name "mode" -Value "IsolateUsers" -PSPath "IIS:\Sites\$ftpSiteName"
+Write-Host "User Isolation configurado correctamente."
 
-# Configurar Physical Path Credentials (Pass-Through para usuarios locales)
-Set-WebConfigurationProperty -Filter "/system.applicationHost/sites/site[@name='$ftpSiteName']/application[@path='/']/virtualDirectory[@path='/']" -Name "userName" -Value ""
-Set-WebConfigurationProperty -Filter "/system.applicationHost/sites/site[@name='$ftpSiteName']/application[@path='/']/virtualDirectory[@path='/']" -Name "password" -Value ""
+# 9. Configurar Physical Path (Ruta física raíz) en Advanced Settings
+Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name physicalPath -Value $ftpRoot
+Write-Host "Physical Path configurado a $ftpRoot."
 
-Write-Host "Configuración de FTP completada correctamente."
+Write-Host "Configuración completa de FTP finalizada correctamente."
