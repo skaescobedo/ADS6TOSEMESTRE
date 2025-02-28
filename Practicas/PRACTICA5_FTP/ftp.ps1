@@ -1,86 +1,89 @@
-# Configuración FTP en Windows Server 2022 (versión mejorada)
+# Instalar rol FTP en IIS
+Install-WindowsFeature -Name Web-FTP-Server -IncludeAllSubFeature -IncludeManagementTools
 
-$FTP_ROOT = "C:\ftp"
-$GENERAL_DIR = "$FTP_ROOT\general"
-$GROUP_DIR = "$FTP_ROOT\grupos"
-$REPROBADOS_DIR = "$GROUP_DIR\reprobados"
-$RECURSADORES_DIR = "$GROUP_DIR\recursadores"
+# Crear estructura de directorios
+$ftpRoot = "C:\FTP"
+$generalDir = "$ftpRoot\general"
+$groupDir = "$ftpRoot\grupos"
+$reprobadosDir = "$groupDir\reprobados"
+$recursadoresDir = "$groupDir\recursadores"
 
-# Instalar componentes necesarios
-Write-Output "Instalando roles y herramientas necesarias..."
-Install-WindowsFeature -Name Web-FTP-Service, Web-Mgmt-Console, Web-Mgmt-Service, Web-Scripting-Tools -IncludeManagementTools
+New-Item -ItemType Directory -Path $generalDir -Force
+New-Item -ItemType Directory -Path $reprobadosDir -Force
+New-Item -ItemType Directory -Path $recursadoresDir -Force
 
-# Crear carpetas
-Write-Output "Creando estructura de carpetas..."
-New-Item -ItemType Directory -Path $GENERAL_DIR -Force
-New-Item -ItemType Directory -Path $REPROBADOS_DIR -Force
-New-Item -ItemType Directory -Path $RECURSADORES_DIR -Force
+# Crear grupos locales
+New-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue
+New-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue
 
-# Crear grupos
-if (-not (Get-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue)) { New-LocalGroup -Name "reprobados" }
-if (-not (Get-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue)) { New-LocalGroup -Name "recursadores" }
+# Crear usuarios y asignar a grupos
+while ($true) {
+    $username = Read-Host "Ingrese nombre de usuario (o 'salir' para terminar)"
+    if ($username -eq 'salir') { break }
 
-# Permisos NTFS iniciales
-icacls $GENERAL_DIR /grant "IIS_IUSRS:R" /T
-icacls $REPROBADOS_DIR /grant "reprobados:(OI)(CI)M" /T
-icacls $RECURSADORES_DIR /grant "recursadores:(OI)(CI)M" /T
-icacls $GENERAL_DIR /grant "reprobados:(OI)(CI)M" /T
-icacls $GENERAL_DIR /grant "recursadores:(OI)(CI)M" /T
+    $plainPassword = Read-Host "Ingrese contraseña para $username"
+    $securePassword = ConvertTo-SecureString -String $plainPassword -AsPlainText -Force
 
-# Crear sitio FTP
-Write-Output "Creando sitio FTP..."
-& "$env:SystemRoot\System32\inetsrv\appcmd.exe" add site /name:"FTPServidor" /bindings:"ftp://*:21" /physicalPath:"$FTP_ROOT"
+    $groupOption = Read-Host "Seleccione grupo (1: reprobados, 2: recursadores)"
+    if ($groupOption -eq "1") { $groupName = "reprobados" }
+    elseif ($groupOption -eq "2") { $groupName = "recursadores" }
+    else { Write-Host "Opción inválida"; continue }
 
-# Configurar autenticación y permisos FTP (usando appcmd para evitar problemas de PowerShell)
-Write-Output "Configurando autenticación y permisos de FTP..."
+    # Crear usuario local (si el servidor es miembro)
+    Remove-LocalUser -Name $username -ErrorAction SilentlyContinue  # Por si existe mal creado
+    New-LocalUser -Name $username -Password $securePassword -FullName $username -Description "Usuario FTP"
 
-& "$env:SystemRoot\System32\inetsrv\appcmd.exe" set config /section:system.ftpServer/security.authentication /anonymousAuthentication.enabled:true /basicAuthentication.enabled:true
-
-& "$env:SystemRoot\System32\inetsrv\appcmd.exe" set config "FTPServidor" /section:system.ftpServer/security/authorization /+"[accessType='Allow',users='*',permissions='Read']"
-
-# Función para crear usuarios
-function Crear-Usuario {
-    while ($true) {
-        $username = Read-Host "Ingrese el nombre del usuario (o 'salir' para finalizar)"
-        if ($username -eq "salir") {
-            Write-Output "Finalizando creación de usuarios."
-            break
-        }
-
-        $group_option = Read-Host "Seleccione el grupo (1: reprobados, 2: recursadores)"
-        if ($group_option -eq "1") {
-            $group = "reprobados"
-        } elseif ($group_option -eq "2") {
-            $group = "recursadores"
-        } else {
-            Write-Output "Opción inválida."
-            continue
-        }
-
-        if (-not (Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
-            $password = Read-Host "Ingrese la contraseña para el usuario $username" -AsSecureString
-            New-LocalUser -Name $username -Password $password -PasswordNeverExpires
-            Add-LocalGroupMember -Group $group -Member $username
-        }
-
-        $userDir = "$FTP_ROOT\$username"
-        if (-not (Test-Path $userDir)) { New-Item -ItemType Directory -Path $userDir -Force }
-
-        # Asignar permisos NTFS específicos
-        $aclRule = "${username}:(OI)(CI)M"
-        icacls $userDir /grant $aclRule /T
-        icacls $REPROBADOS_DIR /grant $aclRule /T
-        icacls $RECURSADORES_DIR /grant $aclRule /T
-        icacls $GENERAL_DIR /grant $aclRule /T
-
-        Write-Output "Usuario $username creado y agregado al grupo $group."
+    # Verificar si el usuario fue creado antes de seguir
+    if (!(Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
+        Write-Host "Error: El usuario $username no pudo ser creado."
+        continue
     }
+
+    # Asignar usuario al grupo
+    Add-LocalGroupMember -Group $groupName -Member $username
+
+    # Crear carpeta personal y asignar permisos
+    $userDir = "$ftpRoot\$username"
+    New-Item -ItemType Directory -Path $userDir -Force
+
+    # Asignar permisos usando & y variables seguras
+    & icacls $userDir "/inheritance:r"
+    & icacls $userDir "/grant", "${username}:(OI)(CI)F"
+    & icacls "$groupDir\$groupName" "/grant", "${username}:(OI)(CI)M"
+
+    Write-Host "Usuario $username creado y agregado al grupo $groupName."
 }
 
-# Crear usuarios
-Crear-Usuario
+# Configurar permisos generales
+& icacls $generalDir "/inheritance:r"
+& icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
+& icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
 
-# Configurar Firewall
-New-NetFirewallRule -DisplayName "FTPServidor" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 21
+# Configurar reglas de firewall
+New-NetFirewallRule -DisplayName "Allow FTP Port 21" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 21
+New-NetFirewallRule -DisplayName "Allow FTP Passive Ports" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 40000-50000
 
-Write-Output "Configuración completada. Servidor FTP listo."
+# Configurar sitio FTP en IIS
+Import-Module WebAdministration
+
+if (!(Test-Path "IIS:\Sites\FTP-Sitio")) {
+    New-WebFtpSite -Name "FTP-Sitio" -PhysicalPath $ftpRoot -Port 21 -Force
+
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
+    Set-ItemProperty "IIS:\Sites\FTP-Sitio" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
+
+    Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
+        accessType="Allow"; users="*"; roles=""; permissions="Read"
+    }
+    Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
+        accessType="Allow"; users=""; roles=""; permissions="Read,Write"
+    }
+    Write-Host "Sitio FTP creado correctamente."
+} else {
+    Write-Host "El sitio FTP ya existe."
+}
+
+Write-Host "Configuración completada."
