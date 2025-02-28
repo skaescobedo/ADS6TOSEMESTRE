@@ -1,47 +1,44 @@
-# PowerShell script para configurar FTP en Windows Server 2022
+# Configuración FTP en Windows Server 2022 (versión mejorada)
 
-# Variables base
 $FTP_ROOT = "C:\ftp"
 $GENERAL_DIR = "$FTP_ROOT\general"
 $GROUP_DIR = "$FTP_ROOT\grupos"
 $REPROBADOS_DIR = "$GROUP_DIR\reprobados"
 $RECURSADORES_DIR = "$GROUP_DIR\recursadores"
 
-# Instalar roles necesarios
-Write-Output "Instalando el rol FTP..."
-Install-WindowsFeature Web-FTP-Server -IncludeManagementTools
+# Instalar componentes necesarios
+Write-Output "Instalando roles y herramientas necesarias..."
+Install-WindowsFeature -Name Web-FTP-Service, Web-Mgmt-Console, Web-Mgmt-Service, Web-Scripting-Tools -IncludeManagementTools
 
-# Crear carpetas base
+# Crear carpetas
+Write-Output "Creando estructura de carpetas..."
 New-Item -ItemType Directory -Path $GENERAL_DIR -Force
 New-Item -ItemType Directory -Path $REPROBADOS_DIR -Force
 New-Item -ItemType Directory -Path $RECURSADORES_DIR -Force
 
-# Crear grupos si no existen
-if (-not (Get-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue)) {
-    New-LocalGroup -Name "reprobados"
-}
-if (-not (Get-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue)) {
-    New-LocalGroup -Name "recursadores"
-}
+# Crear grupos
+if (-not (Get-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue)) { New-LocalGroup -Name "reprobados" }
+if (-not (Get-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue)) { New-LocalGroup -Name "recursadores" }
 
-# Configurar permisos iniciales
+# Permisos NTFS iniciales
 icacls $GENERAL_DIR /grant "IIS_IUSRS:R" /T
 icacls $REPROBADOS_DIR /grant "reprobados:(OI)(CI)M" /T
 icacls $RECURSADORES_DIR /grant "recursadores:(OI)(CI)M" /T
 icacls $GENERAL_DIR /grant "reprobados:(OI)(CI)M" /T
 icacls $GENERAL_DIR /grant "recursadores:(OI)(CI)M" /T
 
-# Crear sitio FTP desde cero usando AppCmd
+# Crear sitio FTP
+Write-Output "Creando sitio FTP..."
 & "$env:SystemRoot\System32\inetsrv\appcmd.exe" add site /name:"FTPServidor" /bindings:"ftp://*:21" /physicalPath:"$FTP_ROOT"
 
-# Configurar autenticación y permisos (corregido para IIS real)
-Set-WebConfigurationProperty -Filter "/system.ftpServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value true -PSPath "IIS:\Sites\FTPServidor"
-Set-WebConfigurationProperty -Filter "/system.ftpServer/security/authentication/basicAuthentication" -Name "enabled" -Value true -PSPath "IIS:\Sites\FTPServidor"
+# Configurar autenticación y permisos FTP (usando appcmd para evitar problemas de PowerShell)
+Write-Output "Configurando autenticación y permisos de FTP..."
 
-# Permisos de lectura anónimos
-Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -PSPath "IIS:\Sites\FTPServidor" -Name "." -Value @{accessType="Allow";users="*";permissions="Read"}
+& "$env:SystemRoot\System32\inetsrv\appcmd.exe" set config /section:system.ftpServer/security.authentication /anonymousAuthentication.enabled:true /basicAuthentication.enabled:true
 
-# Función para crear usuarios de forma interactiva
+& "$env:SystemRoot\System32\inetsrv\appcmd.exe" set config "FTPServidor" /section:system.ftpServer/security/authorization /+"[accessType='Allow',users='*',permissions='Read']"
+
+# Función para crear usuarios
 function Crear-Usuario {
     while ($true) {
         $username = Read-Host "Ingrese el nombre del usuario (o 'salir' para finalizar)"
@@ -56,26 +53,20 @@ function Crear-Usuario {
         } elseif ($group_option -eq "2") {
             $group = "recursadores"
         } else {
-            Write-Output "Opción inválida. Inténtelo de nuevo."
+            Write-Output "Opción inválida."
             continue
         }
 
-        # Crear usuario
         if (-not (Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
             $password = Read-Host "Ingrese la contraseña para el usuario $username" -AsSecureString
             New-LocalUser -Name $username -Password $password -PasswordNeverExpires
             Add-LocalGroupMember -Group $group -Member $username
-        } else {
-            Write-Output "El usuario $username ya existe."
         }
 
-        # Crear carpeta personal
         $userDir = "$FTP_ROOT\$username"
-        if (-not (Test-Path $userDir)) {
-            New-Item -ItemType Directory -Path $userDir
-        }
+        if (-not (Test-Path $userDir)) { New-Item -ItemType Directory -Path $userDir -Force }
 
-        # Asignar permisos NTFS corregidos
+        # Asignar permisos NTFS específicos
         $aclRule = "${username}:(OI)(CI)M"
         icacls $userDir /grant $aclRule /T
         icacls $REPROBADOS_DIR /grant $aclRule /T
