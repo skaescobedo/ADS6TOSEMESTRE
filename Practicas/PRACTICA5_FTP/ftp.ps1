@@ -11,8 +11,13 @@ $reprobadosDir = "$groupDir\reprobados"
 $recursadoresDir = "$groupDir\recursadores"
 $ftpSiteName = "FTP-Sitio"
 
-# 1. Instalar rol FTP e IIS
-Install-WindowsFeature -Name Web-FTP-Server -IncludeAllSubFeature -IncludeManagementTools
+# 1. Asegurar que IIS tiene el módulo FTP instalado
+$ftpFeature = Get-WindowsFeature Web-FTP-Server
+if ($ftpFeature.InstallState -ne "Installed") {
+    Write-Host "Instalando el módulo FTP en IIS..."
+    Install-WindowsFeature Web-FTP-Server -IncludeAllSubFeature -IncludeManagementTools
+    Write-Host "Módulo FTP instalado correctamente."
+}
 
 # 2. Crear estructura de directorios
 New-Item -ItemType Directory -Path $generalDir -Force
@@ -81,7 +86,8 @@ icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
 icacls "$groupDir\reprobados" /deny "IUSR:(RX)"
 icacls "$groupDir\recursadores" /deny "IUSR:(RX)"
 
-# 7. Crear sitio FTP solo si no existe
+# 7. Verificar si el sitio FTP ya existe antes de configurarlo
+Import-Module WebAdministration
 if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
     Write-Host "El sitio FTP no existe. Creándolo..."
     New-WebFtpSite -Name $ftpSiteName -PhysicalPath $ftpRoot -Port 21 -Force
@@ -90,9 +96,23 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
 }
 
 # 8. Configurar User Isolation (Aislamiento de Usuarios)
-Set-WebConfigurationProperty -Filter "/system.ftpServer/userIsolation" -Name "mode" -Value "IsolateUsers" -PSPath "IIS:\Sites\$ftpSiteName"
+$ftpPath = "MACHINE/WEBROOT/APPHOST/$ftpSiteName"
+if (Test-Path "IIS:\Sites\$ftpSiteName") {
+    Set-WebConfigurationProperty -Filter "/system.applicationHost/sites/site[@name='$ftpSiteName']/ftpServer/userIsolation" -Name "mode" -Value "IsolateUsers"
+    Write-Host "User Isolation configurado correctamente."
+} else {
+    Write-Host "Advertencia: No se encontró la configuración de User Isolation. Verifica que el sitio FTP esté activo en IIS."
+}
 
 # 9. Configurar Physical Path (Ruta física raíz)
-Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name physicalPath -Value $ftpRoot
+if (Test-Path "IIS:\Sites\$ftpSiteName") {
+    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name physicalPath -Value $ftpRoot
+    Write-Host "Physical Path configurado a $ftpRoot."
+} else {
+    Write-Host "Advertencia: No se pudo configurar el Physical Path porque el sitio FTP no está disponible en IIS."
+}
+
+# 10. Reiniciar IIS para aplicar los cambios
+iisreset
 
 Write-Host "Configuración completa de FTP finalizada correctamente."
