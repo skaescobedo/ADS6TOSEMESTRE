@@ -92,6 +92,8 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
+    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
+    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
 
     Clear-WebConfiguration "/system.ftpServer/security/authorization"
     Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
