@@ -1,6 +1,13 @@
 # =============================
 # Script Completo: Configuración FTP IIS con User Isolation
-# Requisitos actualizados según el profesor
+# Incluye:
+# - Creación de carpetas
+# - Creación de usuarios
+# - Configuración de permisos NTFS
+# - Configuración IIS (User Isolation, Physical Path)
+# - Acceso anónimo a carpeta general
+# - Acceso controlado a carpetas de grupo
+# - Denegación de acceso a IUSR en carpetas de grupos
 # =============================
 
 # Variables
@@ -23,27 +30,7 @@ New-Item -ItemType Directory -Path $recursadoresDir -Force
 New-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue
 New-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue
 
-# 4. Configurar permisos generales (bloquear visibilidad global)
-icacls $ftpRoot /inheritance:r
-icacls $ftpRoot /grant "Administrators:(OI)(CI)F"
-icacls $ftpRoot /grant "SYSTEM:(OI)(CI)F"
-
-# Permitir que Everyone vea solo general
-icacls $generalDir /inheritance:r
-icacls $generalDir /grant "Everyone:(OI)(CI)R"
-icacls $generalDir /grant "Authenticated Users:(OI)(CI)M"
-
-# Permitir que cada grupo acceda solo a su carpeta
-icacls $reprobadosDir /inheritance:r
-icacls $reprobadosDir /grant "reprobados:(OI)(CI)M"
-icacls $recursadoresDir /inheritance:r
-icacls $recursadoresDir /grant "recursadores:(OI)(CI)M"
-
-# Bloquear acceso cruzado entre grupos
-icacls $reprobadosDir /deny "recursadores:(OI)(CI)F"
-icacls $recursadoresDir /deny "reprobados:(OI)(CI)F"
-
-# 5. Crear usuarios y asignar a grupos
+# 4. Crear usuarios y asignar a grupos
 while ($true) {
     $username = Read-Host "Ingrese nombre de usuario (o 'salir' para terminar)"
     if ($username -eq 'salir') { break }
@@ -66,28 +53,35 @@ while ($true) {
 
     Add-LocalGroupMember -Group $groupName -Member $username
 
-    # Crear carpeta personal y asignar permisos exclusivos
+    # Crear carpeta personal y asignar permisos
     $userDir = "$ftpRoot\$username"
     New-Item -ItemType Directory -Path $userDir -Force
 
     & icacls $userDir "/inheritance:r"
     & icacls $userDir "/grant", "${username}:(OI)(CI)F"
-    & icacls $userDir "/grant", "Administrators:(OI)(CI)F"
 
-    # Permitir acceso a carpeta de grupo
+    # Permisos cruzados: acceso a su carpeta de grupo, denegación a la otra
     if ($groupName -eq "reprobados") {
         & icacls "$groupDir\reprobados" "/grant", "${username}:(OI)(CI)M"
+        & icacls "$groupDir\recursadores" "/deny", "${username}:(OI)(CI)F"
     } elseif ($groupName -eq "recursadores") {
         & icacls "$groupDir\recursadores" "/grant", "${username}:(OI)(CI)M"
+        & icacls "$groupDir\reprobados" "/deny", "${username}:(OI)(CI)F"
     }
 
     Write-Host "Usuario $username creado y agregado al grupo $groupName."
 }
 
+# 5. Permisos generales (acceso anónimo solo lectura al general)
+& icacls $generalDir "/inheritance:r"
+& icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
+& icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
+
 # 6. Denegar acceso a carpetas de grupos para usuarios anónimos (IUSR)
 Write-Host "Restringiendo acceso a carpetas de grupo para usuarios anónimos..."
-icacls "$reprobadosDir" /deny "IUSR:(OI)(CI)F"
-icacls "$recursadoresDir" /deny "IUSR:(OI)(CI)F"
+
+icacls "$groupDir\reprobados" /deny "IUSR:(OI)(CI)F"
+icacls "$groupDir\recursadores" /deny "IUSR:(OI)(CI)F"
 
 Write-Host "Acceso denegado correctamente a grupos para usuarios anónimos."
 
@@ -104,7 +98,6 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
-
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
 
@@ -112,6 +105,7 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
     Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
         accessType = "Allow"; users = "*"; roles = ""; permissions = "Read,Write"
     }
+
     Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
         accessType = "Allow"; users = ""; roles = ""; permissions = "Read"
     }
@@ -121,10 +115,12 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
     Write-Host "El sitio FTP ya existe."
 }
 
-# 9. Configurar User Isolation
+# 9. Configurar User Isolation (Aislamiento de Usuarios)
 Set-WebConfigurationProperty -Filter "/system.ftpServer/userIsolation" -Name "mode" -Value "IsolateUsers" -PSPath "IIS:\Sites\$ftpSiteName"
+Write-Host "User Isolation configurado correctamente."
 
-# 10. Configurar Physical Path
+# 10. Configurar Physical Path (Ruta física raíz)
 Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name physicalPath -Value $ftpRoot
+Write-Host "Physical Path configurado a $ftpRoot."
 
 Write-Host "Configuración completa de FTP finalizada correctamente."
