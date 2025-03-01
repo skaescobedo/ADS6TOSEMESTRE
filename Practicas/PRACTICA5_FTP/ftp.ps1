@@ -1,5 +1,5 @@
 # =============================
-# Configuración FTP IIS con Isolación y Control de Visibilidad de Carpetas
+# Configuración FTP IIS con Isolación y Restricción de Visibilidad de Carpetas
 # =============================
 
 # Variables
@@ -54,15 +54,19 @@ while ($true) {
     # Asignar permisos NTFS para que solo el usuario vea su carpeta
     icacls $userDir "/inheritance:r"
     icacls $userDir "/grant", "${username}:(OI)(CI)F"
-    icacls $usersDir "/deny", "${username}:(OI)(CI)S"
+
+    # Restringir visibilidad de directorios no permitidos
+    icacls "$usersDir" /deny "${username}:(RX)"
+    icacls "$groupDir\reprobados" /deny "${username}:(RX)"
+    icacls "$groupDir\recursadores" /deny "${username}:(RX)"
 
     # Acceso a su carpeta de grupo y denegación a la otra
     if ($groupName -eq "reprobados") {
         icacls "$groupDir\reprobados" "/grant", "${username}:(OI)(CI)M"
-        icacls "$groupDir\recursadores" "/deny", "${username}:(OI)(CI)S"
+        icacls "$groupDir\recursadores" "/deny", "${username}:(RX)"
     } elseif ($groupName -eq "recursadores") {
         icacls "$groupDir\recursadores" "/grant", "${username}:(OI)(CI)M"
-        icacls "$groupDir\reprobados" "/deny", "${username}:(OI)(CI)S"
+        icacls "$groupDir\reprobados" "/deny", "${username}:(RX)"
     }
 
     Write-Host "Usuario $username creado y agregado al grupo $groupName."
@@ -74,13 +78,21 @@ icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
 icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
 
 # 6. Denegar acceso a carpetas de grupos para usuarios anónimos (IUSR)
-icacls "$groupDir\reprobados" "/deny", "IUSR:(OI)(CI)S"
-icacls "$groupDir\recursadores" "/deny", "IUSR:(OI)(CI)S"
+icacls "$groupDir\reprobados" /deny "IUSR:(RX)"
+icacls "$groupDir\recursadores" /deny "IUSR:(RX)"
 
-# 7. Configurar User Isolation (Aislamiento de Usuarios)
+# 7. Crear sitio FTP solo si no existe
+if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
+    Write-Host "El sitio FTP no existe. Creándolo..."
+    New-WebFtpSite -Name $ftpSiteName -PhysicalPath $ftpRoot -Port 21 -Force
+} else {
+    Write-Host "El sitio FTP ya existe."
+}
+
+# 8. Configurar User Isolation (Aislamiento de Usuarios)
 Set-WebConfigurationProperty -Filter "/system.ftpServer/userIsolation" -Name "mode" -Value "IsolateUsers" -PSPath "IIS:\Sites\$ftpSiteName"
 
-# 8. Configurar Physical Path (Ruta física raíz)
+# 9. Configurar Physical Path (Ruta física raíz)
 Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name physicalPath -Value $ftpRoot
 
 Write-Host "Configuración completa de FTP finalizada correctamente."
