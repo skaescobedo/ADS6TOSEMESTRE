@@ -23,7 +23,27 @@ New-Item -ItemType Directory -Path $recursadoresDir -Force
 New-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue
 New-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue
 
-# 4. Crear usuarios y asignar a grupos
+# 4. Configurar permisos generales (bloquear visibilidad global)
+icacls $ftpRoot /inheritance:r
+icacls $ftpRoot /grant "Administrators:(OI)(CI)F"
+icacls $ftpRoot /grant "SYSTEM:(OI)(CI)F"
+
+# Permitir que Everyone vea solo general
+icacls $generalDir /inheritance:r
+icacls $generalDir /grant "Everyone:(OI)(CI)R"
+icacls $generalDir /grant "Authenticated Users:(OI)(CI)M"
+
+# Permitir que cada grupo acceda solo a su carpeta
+icacls $reprobadosDir /inheritance:r
+icacls $reprobadosDir /grant "reprobados:(OI)(CI)M"
+icacls $recursadoresDir /inheritance:r
+icacls $recursadoresDir /grant "recursadores:(OI)(CI)M"
+
+# Bloquear acceso cruzado entre grupos
+icacls $reprobadosDir /deny "recursadores:(OI)(CI)F"
+icacls $recursadoresDir /deny "reprobados:(OI)(CI)F"
+
+# 5. Crear usuarios y asignar a grupos
 while ($true) {
     $username = Read-Host "Ingrese nombre de usuario (o 'salir' para terminar)"
     if ($username -eq 'salir') { break }
@@ -51,31 +71,23 @@ while ($true) {
     New-Item -ItemType Directory -Path $userDir -Force
 
     & icacls $userDir "/inheritance:r"
-    & icacls $userDir "/grant", "${username}:(OI)(CI)F"   # Propietario total control
+    & icacls $userDir "/grant", "${username}:(OI)(CI)F"
     & icacls $userDir "/grant", "Administrators:(OI)(CI)F"
 
-    # Permisos cruzados para grupos
+    # Permitir acceso a carpeta de grupo
     if ($groupName -eq "reprobados") {
         & icacls "$groupDir\reprobados" "/grant", "${username}:(OI)(CI)M"
-        & icacls "$groupDir\recursadores" "/deny", "${username}:(OI)(CI)F"
     } elseif ($groupName -eq "recursadores") {
         & icacls "$groupDir\recursadores" "/grant", "${username}:(OI)(CI)M"
-        & icacls "$groupDir\reprobados" "/deny", "${username}:(OI)(CI)F"
     }
 
     Write-Host "Usuario $username creado y agregado al grupo $groupName."
 }
 
-# 5. Permisos generales (general accesible a todos, anónimo solo lectura)
-& icacls $generalDir "/inheritance:r"
-& icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
-& icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
-
-# 6. Denegar acceso a grupos para usuarios anónimos (IUSR)
+# 6. Denegar acceso a carpetas de grupos para usuarios anónimos (IUSR)
 Write-Host "Restringiendo acceso a carpetas de grupo para usuarios anónimos..."
-
-icacls "$groupDir\reprobados" /deny "IUSR:(OI)(CI)F"
-icacls "$groupDir\recursadores" /deny "IUSR:(OI)(CI)F"
+icacls "$reprobadosDir" /deny "IUSR:(OI)(CI)F"
+icacls "$recursadoresDir" /deny "IUSR:(OI)(CI)F"
 
 Write-Host "Acceso denegado correctamente a grupos para usuarios anónimos."
 
@@ -92,6 +104,7 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
+
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
 
