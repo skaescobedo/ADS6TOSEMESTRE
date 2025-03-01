@@ -1,18 +1,11 @@
 # =============================
-# Script Completo: Configuración FTP IIS con User Isolation
-# Incluye:
-# - Creación de carpetas
-# - Creación de usuarios
-# - Configuración de permisos NTFS
-# - Configuración IIS (User Isolation, Physical Path)
-# - Acceso anónimo a carpeta general
-# - Acceso controlado a carpetas de grupo
-# - Denegación de acceso a IUSR en carpetas de grupos
+# Script Completo: Configuración FTP IIS con User Isolation y Restricción de Listado
 # =============================
 
 # Variables
 $ftpRoot = "C:\FTP"
 $generalDir = "$ftpRoot\general"
+$usersDir = "$ftpRoot\usuarios"
 $groupDir = "$ftpRoot\grupos"
 $reprobadosDir = "$groupDir\reprobados"
 $recursadoresDir = "$groupDir\recursadores"
@@ -23,6 +16,7 @@ Install-WindowsFeature -Name Web-FTP-Server -IncludeAllSubFeature -IncludeManage
 
 # 2. Crear estructura de directorios
 New-Item -ItemType Directory -Path $generalDir -Force
+New-Item -ItemType Directory -Path $usersDir -Force
 New-Item -ItemType Directory -Path $reprobadosDir -Force
 New-Item -ItemType Directory -Path $recursadoresDir -Force
 
@@ -54,28 +48,29 @@ while ($true) {
     Add-LocalGroupMember -Group $groupName -Member $username
 
     # Crear carpeta personal y asignar permisos
-    $userDir = "$ftpRoot\$username"
+    $userDir = "$usersDir\$username"
     New-Item -ItemType Directory -Path $userDir -Force
 
-    & icacls $userDir "/inheritance:r"
-    & icacls $userDir "/grant", "${username}:(OI)(CI)F"
-
-    # Permisos cruzados: acceso a su carpeta de grupo, denegación a la otra
+    # Permisos NTFS para asegurar el aislamiento
+    icacls $userDir "/inheritance:r"
+    icacls $userDir "/grant", "${username}:(OI)(CI)F"
+    
+    # Configurar acceso a su grupo y denegar el otro grupo
     if ($groupName -eq "reprobados") {
-        & icacls "$groupDir\reprobados" "/grant", "${username}:(OI)(CI)M"
-        & icacls "$groupDir\recursadores" "/deny", "${username}:(OI)(CI)F"
+        icacls "$groupDir\reprobados" "/grant", "${username}:(OI)(CI)M"
+        icacls "$groupDir\recursadores" "/deny", "${username}:(OI)(CI)F"
     } elseif ($groupName -eq "recursadores") {
-        & icacls "$groupDir\recursadores" "/grant", "${username}:(OI)(CI)M"
-        & icacls "$groupDir\reprobados" "/deny", "${username}:(OI)(CI)F"
+        icacls "$groupDir\recursadores" "/grant", "${username}:(OI)(CI)M"
+        icacls "$groupDir\reprobados" "/deny", "${username}:(OI)(CI)F"
     }
 
     Write-Host "Usuario $username creado y agregado al grupo $groupName."
 }
 
-# 5. Permisos generales (acceso anónimo solo lectura al general)
-& icacls $generalDir "/inheritance:r"
-& icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
-& icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
+# 5. Permisos generales (acceso anónimo solo lectura a /general)
+icacls $generalDir "/inheritance:r"
+icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
+icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
 
 # 6. Denegar acceso a carpetas de grupos para usuarios anónimos (IUSR)
 Write-Host "Restringiendo acceso a carpetas de grupo para usuarios anónimos..."
