@@ -1,5 +1,13 @@
 # =============================
 # Script Completo: Configuración FTP IIS con User Isolation
+# Incluye:
+# - Creación de carpetas
+# - Creación de usuarios
+# - Configuración de permisos NTFS
+# - Configuración IIS (User Isolation, Physical Path)
+# - Acceso anónimo a carpeta general
+# - Acceso controlado a carpetas de grupo
+# - Denegación de acceso a IUSR en carpetas de grupos
 # =============================
 
 # Variables
@@ -69,13 +77,11 @@ while ($true) {
 & icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
 & icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
 
-# 6. Denegar acceso a carpetas de grupos para usuarios anónimos
+# 6. Denegar acceso a carpetas de grupos para usuarios anónimos (IUSR)
 Write-Host "Restringiendo acceso a carpetas de grupo para usuarios anónimos..."
 
 icacls "$groupDir\reprobados" /deny "IUSR:(OI)(CI)F"
 icacls "$groupDir\recursadores" /deny "IUSR:(OI)(CI)F"
-icacls "$groupDir\reprobados" /deny "Everyone:(OI)(CI)F"
-icacls "$groupDir\recursadores" /deny "Everyone:(OI)(CI)F"
 
 Write-Host "Acceso denegado correctamente a grupos para usuarios anónimos."
 
