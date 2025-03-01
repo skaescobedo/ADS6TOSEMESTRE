@@ -1,15 +1,3 @@
-# =============================
-# Script Completo: Configuración FTP IIS con User Isolation
-# Incluye:
-# - Creación de carpetas
-# - Creación de usuarios
-# - Configuración de permisos NTFS
-# - Configuración IIS (User Isolation, Physical Path)
-# - Acceso anónimo a carpeta general
-# - Acceso controlado a carpetas de grupo
-# - Denegación de acceso a IUSR en carpetas de grupos
-# =============================
-
 # Variables
 $ftpRoot = "C:\FTP"
 $generalDir = "$ftpRoot\general"
@@ -17,18 +5,31 @@ $groupDir = "$ftpRoot\grupos"
 $reprobadosDir = "$groupDir\reprobados"
 $recursadoresDir = "$groupDir\recursadores"
 $ftpSiteName = "FTP-Sitio"
+$logFile = "C:\FTP\log_instalacion_ftp.txt"
+
+# Crear Log
+"Inicio de configuración FTP - $(Get-Date)`r`n" | Set-Content $logFile
+
+function Write-Log($msg) {
+    $msg = "$(Get-Date) - $msg"
+    Write-Host $msg
+    Add-Content $logFile $msg
+}
 
 # 1. Instalar rol FTP e IIS
 Install-WindowsFeature -Name Web-FTP-Server -IncludeAllSubFeature -IncludeManagementTools
+Write-Log "Rol FTP instalado."
 
 # 2. Crear estructura de directorios
 New-Item -ItemType Directory -Path $generalDir -Force
 New-Item -ItemType Directory -Path $reprobadosDir -Force
 New-Item -ItemType Directory -Path $recursadoresDir -Force
+Write-Log "Estructura de carpetas creada."
 
 # 3. Crear grupos locales
 New-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue
 New-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue
+Write-Log "Grupos locales creados."
 
 # 4. Crear usuarios y asignar a grupos
 while ($true) {
@@ -45,51 +46,42 @@ while ($true) {
 
     Remove-LocalUser -Name $username -ErrorAction SilentlyContinue
     New-LocalUser -Name $username -Password $securePassword -FullName $username -Description "Usuario FTP"
-
-    if (!(Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
-        Write-Host "Error: El usuario $username no pudo ser creado."
-        continue
-    }
-
     Add-LocalGroupMember -Group $groupName -Member $username
 
-    # Crear carpeta personal y asignar permisos
     $userDir = "$ftpRoot\$username"
     New-Item -ItemType Directory -Path $userDir -Force
 
-    & icacls $userDir "/inheritance:r"
-    & icacls $userDir "/grant", "${username}:(OI)(CI)F"
+    icacls $userDir /inheritance:r
+    icacls $userDir /grant "${username}:(OI)(CI)F"
 
-    # Permisos cruzados: acceso a su carpeta de grupo, denegación a la otra
     if ($groupName -eq "reprobados") {
-        & icacls "$groupDir\reprobados" "/grant", "${username}:(OI)(CI)M"
-        & icacls "$groupDir\recursadores" "/deny", "${username}:(OI)(CI)F"
+        icacls "$groupDir\reprobados" /grant "${username}:(OI)(CI)M"
+        icacls "$groupDir\recursadores" /deny "${username}:(OI)(CI)F"
     } elseif ($groupName -eq "recursadores") {
-        & icacls "$groupDir\recursadores" "/grant", "${username}:(OI)(CI)M"
-        & icacls "$groupDir\reprobados" "/deny", "${username}:(OI)(CI)F"
+        icacls "$groupDir\recursadores" /grant "${username}:(OI)(CI)M"
+        icacls "$groupDir\reprobados" /deny "${username}:(OI)(CI)F"
     }
 
-    Write-Host "Usuario $username creado y agregado al grupo $groupName."
+    Write-Log "Usuario $username creado y agregado al grupo $groupName."
 }
 
-# 5. Permisos generales (acceso anónimo solo lectura al general)
-& icacls $generalDir "/inheritance:r"
-& icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
-& icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
+# 5. Permisos generales
+icacls $generalDir /inheritance:r
+icacls $generalDir /grant "Everyone:(OI)(CI)R"
+icacls $generalDir /grant "Authenticated Users:(OI)(CI)M"
+Write-Log "Permisos generales configurados."
 
-# 6. Denegar acceso a carpetas de grupos para usuarios anónimos (IUSR)
-Write-Host "Restringiendo acceso a carpetas de grupo para usuarios anónimos..."
-
+# 6. Denegar acceso a IUSR
 icacls "$groupDir\reprobados" /deny "IUSR:(OI)(CI)F"
 icacls "$groupDir\recursadores" /deny "IUSR:(OI)(CI)F"
+Write-Log "Acceso denegado a IUSR en carpetas de grupo."
 
-Write-Host "Acceso denegado correctamente a grupos para usuarios anónimos."
-
-# 7. Reglas de firewall FTP
+# 7. Configurar firewall
 New-NetFirewallRule -DisplayName "Allow FTP Port 21" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 21
 New-NetFirewallRule -DisplayName "Allow FTP Passive Ports" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 40000-50000
+Write-Log "Reglas de firewall configuradas."
 
-# 8. Configurar sitio FTP en IIS
+# 8. Configurar sitio FTP
 Import-Module WebAdministration
 
 if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
@@ -97,30 +89,37 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
 
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
-    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
-    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
-    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
+
+    # Evitar error de passivePortRange si no existe
+    try {
+        Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
+    } catch {
+        Write-Log "Propiedad passivePortRange no disponible, se omite configuración."
+    }
 
     Clear-WebConfiguration "/system.ftpServer/security/authorization"
-    Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
-        accessType = "Allow"; users = "*"; roles = ""; permissions = "Read,Write"
-    }
+    Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{accessType="Allow"; users="*"; permissions="Read,Write"}
+    Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{accessType="Allow"; users=""; permissions="Read"}
 
-    Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
-        accessType = "Allow"; users = ""; roles = ""; permissions = "Read"
-    }
-
-    Write-Host "Sitio FTP creado correctamente."
-} else {
-    Write-Host "El sitio FTP ya existe."
+    Write-Log "Sitio FTP creado."
 }
 
-# 9. Configurar User Isolation (Aislamiento de Usuarios)
-Set-WebConfigurationProperty -Filter "/system.ftpServer/userIsolation" -Name "mode" -Value "IsolateUsers" -PSPath "IIS:\Sites\$ftpSiteName"
-Write-Host "User Isolation configurado correctamente."
+# 9. Configurar User Isolation (solo si es necesario)
+try {
+    $currentMode = Get-WebConfigurationProperty -Filter "/system.ftpServer/userIsolation" -Name "mode" -PSPath "IIS:\Sites\$ftpSiteName"
+    if ($currentMode.Value -ne "IsolateUsers") {
+        Set-WebConfigurationProperty -Filter "/system.ftpServer/userIsolation" -Name "mode" -Value "IsolateUsers" -PSPath "IIS:\Sites\$ftpSiteName"
+        Write-Log "User Isolation configurado a IsolateUsers."
+    } else {
+        Write-Log "User Isolation ya estaba configurado correctamente."
+    }
+} catch {
+    Write-Log "Error al configurar User Isolation: $_"
+}
 
-# 10. Configurar Physical Path (Ruta física raíz)
+# 10. Configurar Physical Path
 Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name physicalPath -Value $ftpRoot
-Write-Host "Physical Path configurado a $ftpRoot."
+Write-Log "Physical Path configurado."
 
-Write-Host "Configuración completa de FTP finalizada correctamente."
+Write-Log "Configuración completa de FTP finalizada."
+Write-Host "Configuración completa de FTP finalizada. Revisa el log en $logFile"
