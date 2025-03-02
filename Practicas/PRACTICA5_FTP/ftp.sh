@@ -10,7 +10,7 @@ sudo cp /etc/vsftpd.conf /etc/vsftpd.conf.bak  # Hacer una copia de seguridad
 sudo bash -c 'cat > /etc/vsftpd.conf' <<EOF
 # Habilitar acceso anónimo con solo lectura en /srv/ftp/general
 anonymous_enable=YES
-anon_root=/srv/ftp/general
+anon_root=/srv/ftp
 anon_upload_enable=NO
 anon_mkdir_write_enable=NO
 anon_other_write_enable=NO
@@ -29,8 +29,9 @@ pam_service_name=vsftpd
 user_sub_token=\$USER
 
 # Permitir que los usuarios puedan navegar entre las carpetas permitidas
-chroot_local_user=NO
+chroot_local_user=YES
 allow_writeable_chroot=YES
+local_root=/srv/ftp
 
 # Configuración de modo pasivo
 pasv_enable=YES
@@ -106,11 +107,12 @@ crear_usuario() {
         # Crear y configurar directorios de usuario
         sudo mkdir -p $FTP_ROOT/$username
         sudo chown $username:$username $FTP_ROOT/$username
-        sudo chmod 755 $FTP_ROOT/$username
+        sudo chmod 750 $FTP_ROOT/$username
 
         # Permisos sobre las carpetas
         sudo setfacl -m u:$username:rwx $GENERAL_DIR
         sudo setfacl -m u:$username:rwx $FTP_ROOT/$username
+        sudo setfacl -m o::--- $FTP_ROOT/$username
         sudo setfacl -m u:$username:rwx $GROUP_DIR/$group
 
         echo "Usuario $username creado y agregado al grupo $group."
