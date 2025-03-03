@@ -2,8 +2,8 @@
 Import-Module "C:\Users\Administrator\Desktop\librerianueva.ps1"
 
 # Instalar el servidor web y el servidor FTP con todas sus características
-Install-WindowsFeature Web-Server -IncludeAllSubFeature
-Install-WindowsFeature Web-FTP-Server -IncludeAllSubFeature
+#Install-WindowsFeature Web-Server -IncludeAllSubFeature
+#Install-WindowsFeature Web-FTP-Server -IncludeAllSubFeature
 
 # Crear carpetas base para el servidor FTP
 New-Item -ItemType Directory -Path C:\FTP -Force
@@ -107,6 +107,12 @@ Add-WebConfiguration "/system.ftpServer/security/authorization" -Value @{
     permissions = 1
 } -PsPath IIS:\ -Location "FTP/general"
 
+Add-WebConfiguration "/system.ftpServer/security/authorization" -Value @{
+    accessType = "Allow";
+    roles = "reprobados,recursadores";
+    permissions = 3
+} -PsPath IIS:\ -Location "FTP/general"
+
 # Permitir acceso a los grupos reprobados y recursadores al sitio FTP
 Add-WebConfiguration "/system.ftpServer/security/authorization" -Value @{
     accessType = "Allow";
@@ -135,8 +141,12 @@ Add-WebConfiguration "/system.ftpServer/security/authorization" -Value @{
 icacls "C:\FTP\recursadores" /deny "IUSR:(OI)(CI)(R,W)"
 icacls "C:\FTP\reprobados" /deny "IUSR:(OI)(CI)(R,W)"
 
-# Conceder acceso completo a IUSR en la carpeta general
-icacls "C:\FTP\general" /grant "IUSR:(OI)(CI)F"
+# Permisos: IUSR puede leer general, pero NO escribir
+icacls "C:\FTP\general" /grant "IUSR:(OI)(CI)R"
+
+# Usuarios autenticados (reprobados/recursadores) pueden leer y escribir
+icacls "C:\FTP\general" /grant "reprobados:(OI)(CI)M"
+icacls "C:\FTP\general" /grant "recursadores:(OI)(CI)M"
 
 # Reiniciar el sitio FTP
 Restart-WebItem "IIS:\Sites\FTP"
