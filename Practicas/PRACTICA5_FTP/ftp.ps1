@@ -41,7 +41,7 @@ do {
 
     # Pedir contraseña y validarla
     do {
-        $claveUsuario = Read-Host "Introduce la contraseña (mínimo 8 caracteres, mayúscula, minúscula, número y símbolo especial)"
+        $claveUsuario = Read-Host "Introduce la contraseña (8 caracteres, una mayuscula, una minuscula, un digito y un caracter especial)"
         
         if (-not (comprobarPassword -clave $claveUsuario)) {
             Write-Host "La contraseña no cumple con los requisitos, intenta de nuevo."
