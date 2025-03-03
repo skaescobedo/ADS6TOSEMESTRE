@@ -1,111 +1,144 @@
-# Variables
-$ftpRoot = "C:\FTP"
-$generalDir = "$ftpRoot\general"
-$groupDir = "$ftpRoot\grupos"
-$reprobadosDir = "$groupDir\reprobados"
-$recursadoresDir = "$groupDir\recursadores"
-$ftpSiteName = "FTP-Sitio"
+# Importar el módulo de utilidades externas
+Import-Module "C:\Users\Administrator\Desktop\librerianueva.ps1"
 
-# 1. Instalar rol FTP e IIS
-Install-WindowsFeature -Name Web-FTP-Server -IncludeAllSubFeature -IncludeManagementTools
+# Instalar el servidor web y el servidor FTP con todas sus características
+Install-WindowsFeature Web-Server -IncludeAllSubFeature
+Install-WindowsFeature Web-FTP-Server -IncludeAllSubFeature
 
-# 2. Crear estructura de directorios
-New-Item -ItemType Directory -Path $generalDir -Force
-New-Item -ItemType Directory -Path $reprobadosDir -Force
-New-Item -ItemType Directory -Path $recursadoresDir -Force
+# Crear carpetas base para el servidor FTP
+New-Item -ItemType Directory -Path C:\FTP -Force
+New-Item -ItemType Directory -Path C:\FTP\general -Force
+New-Item -ItemType Directory -Path C:\FTP\recursadores -Force
+New-Item -ItemType Directory -Path C:\FTP\reprobados -Force
 
-# 3. Crear grupos locales
-New-LocalGroup -Name "reprobados" -ErrorAction SilentlyContinue
-New-LocalGroup -Name "recursadores" -ErrorAction SilentlyContinue
+# Configurar firewall para permitir el puerto FTP
+New-NetFirewallRule -DisplayName "Permitir FTP" -Direction Inbound -Protocol TCP -LocalPort 21 -Action Allow
 
-# 4. Crear usuarios y asignar a grupos
-while ($true) {
-    $username = Read-Host "Ingrese nombre de usuario (o 'salir' para terminar)"
-    if ($username -eq 'salir') { break }
+# Crear el sitio FTP
+New-WebFtpSite -Name "FTP" -Port 21 -PhysicalPath "C:\FTP"
 
-    $plainPassword = Read-Host "Ingrese contraseña para $username"
-    $securePassword = ConvertTo-SecureString -String $plainPassword -AsPlainText -Force
+# Obtener objeto para manejar usuarios y grupos locales
+$SistemaUsuarios = [ADSI]"WinNT://$env:ComputerName"
 
-    $groupOption = Read-Host "Seleccione grupo (1: reprobados, 2: recursadores)"
-    if ($groupOption -eq "1") { $groupName = "reprobados" }
-    elseif ($groupOption -eq "2") { $groupName = "recursadores" }
-    else { Write-Host "Opción inválida"; continue }
+# Crear grupos de usuarios para el FTP
+$GrupoReprobados = $SistemaUsuarios.Create("Group", "reprobados")
+$GrupoReprobados.SetInfo()
+$GrupoReprobados.Description = "Usuarios con acceso a reprobados"
+$GrupoReprobados.SetInfo()
 
-    Remove-LocalUser -Name $username -ErrorAction SilentlyContinue
-    New-LocalUser -Name $username -Password $securePassword -FullName $username -Description "Usuario FTP"
+$GrupoRecursadores = $SistemaUsuarios.Create("Group", "recursadores")
+$GrupoRecursadores.SetInfo()
+$GrupoRecursadores.Description = "Usuarios con acceso a recursadores"
+$GrupoRecursadores.SetInfo()
 
-    if (!(Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
-        Write-Host "Error: El usuario $username no pudo ser creado."
-        continue
+# Proceso para capturar usuarios y asignarlos a grupos
+do {
+    $nombreUsuario = Read-Host "Introduce el nombre del usuario (o escribe 'salir' para terminar)"
+
+    if ($nombreUsuario -eq "salir") {
+        break
     }
 
-    Add-LocalGroupMember -Group $groupName -Member $username
+    # Pedir contraseña y validarla
+    do {
+        $claveUsuario = Read-Host "Introduce la contraseña (mínimo 8 caracteres, mayúscula, minúscula, número y símbolo especial)"
+        
+        if (-not (comprobarPassword -clave $claveUsuario)) {
+            Write-Host "La contraseña no cumple con los requisitos, intenta de nuevo."
+        }
+    } while (-not (comprobarPassword -clave $claveUsuario))
+
+    # Selección de grupo
+    do {
+        Write-Host "Selecciona el grupo para el usuario:"
+        Write-Host "1) Reprobados"
+        Write-Host "2) Recursadores"
+        $grupoSeleccionado = Read-Host "Elige 1 o 2"
+
+        if ($grupoSeleccionado -eq "1") {
+            $grupoFTP = "reprobados"
+            break
+        } elseif ($grupoSeleccionado -eq "2") {
+            $grupoFTP = "recursadores"
+            break
+        } else {
+            Write-Host "Opción inválida. Selecciona 1 o 2."
+        }
+    } while ($true)
+
+    # Crear el usuario en el sistema
+    $usuarioNuevo = $SistemaUsuarios.Create("User", $nombreUsuario)
+    $usuarioNuevo.SetInfo()
+    $usuarioNuevo.SetPassword($claveUsuario)
+    $usuarioNuevo.SetInfo()
+
+    # Añadir el usuario al grupo
+    $grupoADS = [ADSI]"WinNT://$env:ComputerName/$grupoFTP,group"
+    $grupoADS.Invoke("Add", "WinNT://$env:ComputerName/$nombreUsuario,user")
 
     # Crear carpeta personal y asignar permisos
-    $userDir = "$ftpRoot\$username"
-    New-Item -ItemType Directory -Path $userDir -Force
+    $rutaPersonal = "C:\FTP\$nombreUsuario"
+    if (-not (Test-Path $rutaPersonal)) {
+        New-Item -ItemType Directory -Path $rutaPersonal
+    }
+    icacls $rutaPersonal /inheritance:R
+    icacls $rutaPersonal /grant "`"$nombreUsuario`":(OI)(CI)F"
 
-    & icacls $userDir "/inheritance:r"
-    & icacls $userDir "/grant", "${username}:(OI)(CI)F"
-
-    # Permisos cruzados: acceso a su carpeta de grupo, denegación a la otra
-    if ($groupName -eq "reprobados") {
-        & icacls "$groupDir\reprobados" "/grant", "${username}:(OI)(CI)M"
-        & icacls "$groupDir\recursadores" "/deny", "${username}:(OI)(CI)F"
-    } elseif ($groupName -eq "recursadores") {
-        & icacls "$groupDir\recursadores" "/grant", "${username}:(OI)(CI)M"
-        & icacls "$groupDir\reprobados" "/deny", "${username}:(OI)(CI)F"
+    # Configurar permisos según el grupo seleccionado
+    if ($grupoFTP -eq "recursadores") {
+        icacls "C:\FTP\recursadores" /grant "`"$nombreUsuario`":(OI)(CI)F"
+        icacls "C:\FTP\reprobados" /deny "`"$nombreUsuario`":(CI)(OI)(F)"
+    } else {
+        icacls "C:\FTP\reprobados" /grant "`"$nombreUsuario`":(OI)(CI)F"
+        icacls "C:\FTP\recursadores" /deny "`"$nombreUsuario`":(CI)(OI)(F)"
     }
 
-    Write-Host "Usuario $username creado y agregado al grupo $groupName."
-}
+    # Permisos para la carpeta general
+    icacls "C:\FTP\general" /grant "`"$nombreUsuario`":(OI)(CI)F"
 
-# 5. Permisos generales (acceso anónimo solo lectura al general)
-& icacls $generalDir "/inheritance:r"
-& icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
-& icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
+} while ($true)
 
-# 6.1 Denegar acceso completo a carpetas de grupo para usuarios anónimos (IUSR)
-Write-Host "Restringiendo acceso a carpetas de grupo para usuarios anónimos..."
-icacls "$groupDir\reprobados" /deny "IUSR:(OI)(CI)F"
-icacls "$groupDir\recursadores" /deny "IUSR:(OI)(CI)F"
-Write-Host "Acceso denegado correctamente a grupos para usuarios anónimos."
+# Configurar permisos y reglas en IIS
 
-# 7. Reglas de firewall FTP
-New-NetFirewallRule -DisplayName "Allow FTP Port 21" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 21
-New-NetFirewallRule -DisplayName "Allow FTP Passive Ports" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 40000-50000
+# Permitir acceso general a todos en la carpeta 'general'
+Add-WebConfiguration "/system.ftpServer/security/authorization" -Value @{
+    accessType = "Allow";
+    users = "*";
+    permissions = 1
+} -PsPath IIS:\ -Location "FTP/general"
 
-# 8. Configurar sitio FTP en IIS
-Import-Module WebAdministration
+# Permitir acceso a los grupos reprobados y recursadores al sitio FTP
+Add-WebConfiguration "/system.ftpServer/security/authorization" -Value @{
+    accessType = "Allow";
+    roles = "reprobados,recursadores";
+    permissions = 1
+} -PsPath IIS:\ -Location "FTP"
 
-if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
-    New-WebFtpSite -Name $ftpSiteName -PhysicalPath $ftpRoot -Port 21 -Force
+# Configuración de autenticación FTP y desactivación de SSL
+Set-ItemProperty "IIS:\Sites\FTP" -Name ftpServer.Security.authentication.basicAuthentication.enabled -Value $true
+Set-ItemProperty "IIS:\Sites\FTP" -Name ftpServer.security.ssl.dataChannelPolicy -Value 0
+Set-ItemProperty "IIS:\Sites\FTP" -Name ftpServer.security.ssl.controlChannelPolicy -Value 0
 
-    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
-    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
-    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
-    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
+# Configurar acceso anónimo al FTP
+Set-ItemProperty "IIS:\Sites\FTP" -Name ftpServer.Security.authentication.anonymousAuthentication.enabled -Value $true
+Set-ItemProperty "IIS:\Sites\FTP" -Name ftpServer.Security.authentication.anonymousAuthentication.userName -Value "IUSR"
+Set-ItemProperty "IIS:\Sites\FTP" -Name ftpServer.Security.authentication.anonymousAuthentication.password -Value ""
 
-    # 9. Reglas de autorización FTP (control de acceso a nivel IIS)
-    Clear-WebConfiguration "/system.ftpServer/security/authorization"
+# Permitir acceso anónimo a la raíz FTP
+Add-WebConfiguration "/system.ftpServer/security/authorization" -Value @{
+    accessType = "Allow";
+    users = "?";
+    permissions = 1
+} -PsPath IIS:\ -Location "FTP"
 
-    # Solo lectura para todos (esto cubre anónimos y autenticados)
-    Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
-        accessType = "Allow"; users = "*"; permissions = "Read"
-    }
+# Restringir acceso de IUSR a recursadores y reprobados
+icacls "C:\FTP\recursadores" /deny "IUSR:(OI)(CI)(R,W)"
+icacls "C:\FTP\reprobados" /deny "IUSR:(OI)(CI)(R,W)"
 
-    # Lectura y escritura para usuarios autenticados
-    Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
-        accessType = "Allow"; roles = "Authenticated Users"; permissions = "Read,Write"
-    }
+# Conceder acceso completo a IUSR en la carpeta general
+icacls "C:\FTP\general" /grant "IUSR:(OI)(CI)F"
 
-    Write-Host "Sitio FTP creado correctamente."
-} else {
-    Write-Host "El sitio FTP ya existe."
-}
+# Reiniciar el sitio FTP
+Restart-WebItem "IIS:\Sites\FTP"
 
-# 10. Configurar Physical Path (Ruta física raíz)
-Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name physicalPath -Value $ftpRoot
-Write-Host "Physical Path configurado a $ftpRoot."
-
-Write-Host "Configuración completa de FTP finalizada correctamente."
+Write-Host "¡Servidor FTP configurado correctamente!"
