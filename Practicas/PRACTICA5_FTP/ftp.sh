@@ -1,24 +1,26 @@
 #!/bin/bash
 
-# Actualizar repositorios e instalar vsftpd
-echo "Instalando vsftpd..."
+# Instalación de vsftpd, ACL y UFW
+echo "Instalando vsftpd, acl y ufw..."
 sudo apt update && sudo apt install -y vsftpd acl ufw
 
-# Configurar vsftpd
+# Configuración base de vsftpd
 echo "Configurando vsftpd..."
-sudo cp /etc/vsftpd.conf /etc/vsftpd.conf.bak  # Hacer una copia de seguridad
+sudo cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
+
 sudo bash -c 'cat > /etc/vsftpd.conf' <<EOF
-# Habilitar acceso anónimo con solo lectura en /srv/ftp/general
 anonymous_enable=YES
-anon_root=/srv/ftp
+anon_root=/srv/ftp/anon
 anon_upload_enable=NO
 anon_mkdir_write_enable=NO
 anon_other_write_enable=NO
 
-# Configuración de usuarios locales
 local_enable=YES
 write_enable=YES
 local_umask=022
+file_open_mode=0644
+anon_umask=022
+
 dirmessage_enable=YES
 use_localtime=YES
 xferlog_enable=YES
@@ -28,67 +30,58 @@ listen_ipv6=NO
 pam_service_name=vsftpd
 user_sub_token=\$USER
 
-# Permitir que los usuarios puedan navegar entre las carpetas permitidas
 chroot_local_user=YES
 allow_writeable_chroot=YES
-local_root=/srv/ftp
+local_root=/srv/ftp/autenticados/\$USER
 
-# Configuración de modo pasivo
 pasv_enable=YES
 pasv_min_port=40000
 pasv_max_port=50000
 
-# Mensaje de bienvenida
-ftpd_banner=Bienvenido al servidor FTP de Ubuntu.
+ftpd_banner=Bienvenido al servidor FTP.
 EOF
 
-# Crear directorios base
-echo "Creando directorios FTP..."
-FTP_ROOT="/srv/ftp"
-GENERAL_DIR="$FTP_ROOT/general"
-GROUP_DIR="$FTP_ROOT/grupos"
-mkdir -p $GENERAL_DIR
-mkdir -p $GROUP_DIR/reprobados
-mkdir -p $GROUP_DIR/recursadores
+# Crear estructura de directorios
+echo "Creando estructura de directorios..."
 
-# Montar el directorio FTP en /home/ftp
-echo "Montando el directorio FTP..."
-sudo mkdir -p /home/ftp
-sudo mount --bind /srv/ftp /home/ftp
+FTP_ROOT="/srv/ftp"
+mkdir -p $FTP_ROOT/{anon,autenticados,grupos/general,grupos/reprobados,grupos/recursadores}
+
+# Permisos generales y dueño para 'general'
+sudo chmod 775 $FTP_ROOT/grupos/general
+sudo chown root:ftp $FTP_ROOT/grupos/general
+
+# Permisos de carpetas de grupos
+sudo chmod 770 $FTP_ROOT/grupos/reprobados
+sudo chmod 770 $FTP_ROOT/grupos/recursadores
+sudo chown root:reprobados $FTP_ROOT/grupos/reprobados
+sudo chown root:recursadores $FTP_ROOT/grupos/recursadores
+
+# Permitir que cualquier archivo nuevo en 'general' sea visible por todos
+sudo setfacl -d -m o::r $FTP_ROOT/grupos/general
+
+# Montar carpeta general para anónimos
+mkdir -p $FTP_ROOT/anon/general
+sudo mount --bind $FTP_ROOT/grupos/general $FTP_ROOT/anon/general
 
 # Hacer el montaje persistente
-echo "/srv/ftp /home/ftp none bind 0 0" | sudo tee -a /etc/fstab
+echo "$FTP_ROOT/grupos/general $FTP_ROOT/anon/general none bind 0 0" | sudo tee -a /etc/fstab
 
-# Configurar permisos para acceso anónimo con solo lectura en "general"
-sudo chmod 755 $GENERAL_DIR
-sudo chown ftp:nogroup $GENERAL_DIR
+# Crear grupos de usuarios
+sudo groupadd -f reprobados
+sudo groupadd -f recursadores
 
-# Crear grupos
-echo "Creando grupos de usuarios..."
-sudo groupadd reprobados
-sudo groupadd recursadores
-
-# Configurar permisos de escritura en carpetas de grupo
-sudo chmod 770 $GROUP_DIR/reprobados
-sudo chmod 770 $GROUP_DIR/recursadores
-sudo chown root:reprobados $GROUP_DIR/reprobados
-sudo chown root:recursadores $GROUP_DIR/recursadores
-
-# Permitir escritura de usuarios autenticados en la carpeta general
-sudo chmod 777 $GENERAL_DIR
-
-# Función para crear usuarios
+# Función para crear un usuario autenticado
 crear_usuario() {
     while true; do
-        echo -n "Ingrese el nombre del usuario (o 'salir' para finalizar): "
+        echo -n "Ingrese el nombre del usuario (o 'salir' para terminar): "
         read username
-
         if [[ "$username" == "salir" ]]; then
             echo "Finalizando creación de usuarios."
             break
         fi
 
-        echo -n "Seleccione el grupo (1: reprobados, 2: recursadores): "
+        echo "Seleccione el grupo: (1) reprobados (2) recursadores"
         read group_option
 
         if [ "$group_option" == "1" ]; then
@@ -96,44 +89,50 @@ crear_usuario() {
         elif [ "$group_option" == "2" ]; then
             group="recursadores"
         else
-            echo "Opción inválida. Inténtelo de nuevo."
+            echo "Opción inválida."
             continue
         fi
 
-        sudo useradd -m -d $FTP_ROOT/$username -s /bin/bash -G $group $username
-        echo "Ingrese la contraseña para el usuario $username:"
+        # Crear usuario con home en /srv/ftp/autenticados/username
+        sudo useradd -m -d $FTP_ROOT/autenticados/$username -s /bin/bash -G $group $username
         sudo passwd $username
 
-        # Crear y configurar directorios de usuario
-        sudo mkdir -p $FTP_ROOT/$username
-        sudo chown $username:$username $FTP_ROOT/$username
-        sudo chmod 750 $FTP_ROOT/$username
+        # Crear carpetas personalizadas y bind mounts
+        sudo mkdir -p $FTP_ROOT/autenticados/$username/{general,$group}
+        sudo chown $username:$username $FTP_ROOT/autenticados/$username
+        sudo chmod 750 $FTP_ROOT/autenticados/$username
 
-        # Permisos sobre las carpetas
-        sudo setfacl -m u:$username:rwx $GENERAL_DIR
-        sudo setfacl -m u:$username:rwx $FTP_ROOT/$username
-        sudo setfacl -m o::--- $FTP_ROOT/$username
-        sudo setfacl -m u:$username:rwx $GROUP_DIR/$group
+        # Bind general y grupo a la carpeta del usuario
+        sudo mount --bind $FTP_ROOT/grupos/general $FTP_ROOT/autenticados/$username/general
+        sudo mount --bind $FTP_ROOT/grupos/$group $FTP_ROOT/autenticados/$username/$group
 
-        echo "Usuario $username creado y agregado al grupo $group."
+        # Añadir a /etc/fstab para que persista
+        echo "$FTP_ROOT/grupos/general $FTP_ROOT/autenticados/$username/general none bind 0 0" | sudo tee -a /etc/fstab
+        echo "$FTP_ROOT/grupos/$group $FTP_ROOT/autenticados/$username/$group none bind 0 0" | sudo tee -a /etc/fstab
+
+        # Permisos ACL para asegurar acceso
+        sudo setfacl -m u:$username:rwx $FTP_ROOT/autenticados/$username
+        sudo setfacl -m u:$username:rwx $FTP_ROOT/grupos/general
+        sudo setfacl -m u:$username:rwx $FTP_ROOT/grupos/$group
+
+        echo "Usuario $username creado y asignado al grupo $group."
     done
 }
 
-# Agregar usuarios de forma interactiva
+# Crear usuarios interactivamente
 crear_usuario
 
-# Configurar reglas de firewall
-echo "Configurando firewall para permitir FTP..."
+# Configurar firewall
+echo "Configurando firewall..."
 sudo ufw allow 20/tcp
 sudo ufw allow 21/tcp
-sudo ufw allow 40000:50000/tcp  # Puertos de modo pasivo
+sudo ufw allow 40000:50000/tcp
 
 # Reiniciar vsftpd
 echo "Reiniciando vsftpd..."
 sudo systemctl restart vsftpd
 
-# Habilitar firewall si aún no está activo
-echo "Habilitando UFW si no está activo..."
+# Habilitar UFW
 sudo ufw enable
 
-echo "Configuración completada. Servidor FTP listo para usar."
+echo "Servidor FTP configurado correctamente."
