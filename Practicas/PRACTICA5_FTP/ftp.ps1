@@ -1,15 +1,3 @@
-# =============================
-# Script Completo: Configuración FTP IIS con User Isolation
-# Incluye:
-# - Creación de carpetas
-# - Creación de usuarios
-# - Configuración de permisos NTFS
-# - Configuración IIS (User Isolation, Physical Path)
-# - Acceso anónimo a carpeta general
-# - Acceso controlado a carpetas de grupo
-# - Denegación de acceso a IUSR en carpetas de grupos
-# =============================
-
 # Variables
 $ftpRoot = "C:\FTP"
 $generalDir = "$ftpRoot\general"
@@ -77,12 +65,10 @@ while ($true) {
 & icacls $generalDir "/grant", "Everyone:(OI)(CI)R"
 & icacls $generalDir "/grant", "Authenticated Users:(OI)(CI)M"
 
-# 6. Denegar acceso a carpetas de grupos para usuarios anónimos (IUSR)
+# 6.1 Denegar acceso completo a carpetas de grupo para usuarios anónimos (IUSR)
 Write-Host "Restringiendo acceso a carpetas de grupo para usuarios anónimos..."
-
 icacls "$groupDir\reprobados" /deny "IUSR:(OI)(CI)F"
 icacls "$groupDir\recursadores" /deny "IUSR:(OI)(CI)F"
-
 Write-Host "Acceso denegado correctamente a grupos para usuarios anónimos."
 
 # 7. Reglas de firewall FTP
@@ -97,27 +83,26 @@ if (!(Get-WebSite -Name $ftpSiteName -ErrorAction SilentlyContinue)) {
 
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.basicAuthentication.enabled -Value $true
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.authentication.anonymousAuthentication.enabled -Value $true
-    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.firewallSupport.passivePortRange -Value "40000-50000"
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.controlChannelPolicy -Value "SslAllow"
     Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name ftpServer.security.ssl.dataChannelPolicy -Value "SslAllow"
 
+    # 9. Reglas de autorización FTP (control de acceso a nivel IIS)
     Clear-WebConfiguration "/system.ftpServer/security/authorization"
+
+    # Solo lectura para todos (esto cubre anónimos y autenticados)
     Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
-        accessType = "Allow"; users = "*"; roles = ""; permissions = "Read,Write"
+        accessType = "Allow"; users = "*"; permissions = "Read"
     }
 
+    # Lectura y escritura para usuarios autenticados
     Add-WebConfigurationProperty -Filter "/system.ftpServer/security/authorization" -Name "." -Value @{
-        accessType = "Allow"; users = ""; roles = ""; permissions = "Read"
+        accessType = "Allow"; roles = "Authenticated Users"; permissions = "Read,Write"
     }
 
     Write-Host "Sitio FTP creado correctamente."
 } else {
     Write-Host "El sitio FTP ya existe."
 }
-
-# 9. Configurar User Isolation (Aislamiento de Usuarios)
-Set-WebConfigurationProperty -Filter "/system.ftpServer/userIsolation" -Name "mode" -Value "IsolateUsers" -PSPath "IIS:\Sites\$ftpSiteName"
-Write-Host "User Isolation configurado correctamente."
 
 # 10. Configurar Physical Path (Ruta física raíz)
 Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name physicalPath -Value $ftpRoot
