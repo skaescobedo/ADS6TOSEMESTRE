@@ -71,7 +71,7 @@ echo "$FTP_ROOT/grupos/general $FTP_ROOT/anon/general none bind 0 0" | sudo tee 
 sudo groupadd -f reprobados
 sudo groupadd -f recursadores
 
-# Función para crear un usuario autenticado
+# Función para crear un usuario autenticado con carpeta personal
 crear_usuario() {
     while true; do
         echo -n "Ingrese el nombre del usuario (o 'salir' para terminar): "
@@ -97,10 +97,12 @@ crear_usuario() {
         sudo useradd -m -d $FTP_ROOT/autenticados/$username -s /bin/bash -G $group $username
         sudo passwd $username
 
-        # Crear carpetas personalizadas y bind mounts
-        sudo mkdir -p $FTP_ROOT/autenticados/$username/{general,$group}
+        # Crear carpetas personalizadas, incluyendo su carpeta personal
+        sudo mkdir -p $FTP_ROOT/autenticados/$username/{general,$group,$username}
         sudo chown $username:$username $FTP_ROOT/autenticados/$username
+        sudo chown $username:$username $FTP_ROOT/autenticados/$username/$username
         sudo chmod 750 $FTP_ROOT/autenticados/$username
+        sudo chmod 700 $FTP_ROOT/autenticados/$username/$username
 
         # Bind general y grupo a la carpeta del usuario
         sudo mount --bind $FTP_ROOT/grupos/general $FTP_ROOT/autenticados/$username/general
@@ -115,7 +117,10 @@ crear_usuario() {
         sudo setfacl -m u:$username:rwx $FTP_ROOT/grupos/general
         sudo setfacl -m u:$username:rwx $FTP_ROOT/grupos/$group
 
-        echo "Usuario $username creado y asignado al grupo $group."
+        echo "Usuario $username creado, carpeta personal '$username' creada, y asignado al grupo $group."
+
+        # Asegurar que vsftpd pueda listar correctamente
+        sudo chmod 750 $FTP_ROOT/autenticados/$username
     done
 }
 
