@@ -54,7 +54,13 @@ function Crear-Usuario-FTP {
     $SistemaUsuarios = [ADSI]"WinNT://$env:ComputerName"
 
     do {
-        $nombreUsuario = Read-Host "Introduce el nombre del usuario (o escribe 'salir' para terminar)"
+        do {
+            $nombreUsuario = Read-Host "Introduce el nombre del usuario (o escribe 'salir' para terminar)"
+            if ([string]::IsNullOrWhiteSpace($nombreUsuario)) {
+                Write-Host "El nombre de usuario no puede estar vacío. Intenta de nuevo."
+            }
+        } while ([string]::IsNullOrWhiteSpace($nombreUsuario))
+
         if ($nombreUsuario -eq "salir") { break }
 
         do {
@@ -106,6 +112,7 @@ function Crear-Usuario-FTP {
     } while ($true)
 }
 
+
 # Función para crear symlinks
 function Crear-Symlink {
     param(
@@ -129,7 +136,7 @@ function Configurar-Autenticacion-Permisos {
 
     Add-WebConfiguration "/system.ftpServer/security/authorization" -PSPath "IIS:\" -Value @{
         accessType = "Allow";
-        roles = "*";
+        roles = "reprobados, recursadores";
         permissions = 3
     } -Location "FTP"
 

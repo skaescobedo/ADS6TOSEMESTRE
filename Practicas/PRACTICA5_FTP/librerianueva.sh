@@ -76,8 +76,18 @@ crear_usuario() {
     FTP_ROOT="/srv/ftp"
 
     while true; do
-        echo -n "Ingrese el nombre del usuario (o 'salir' para terminar): "
-        read username
+        while true; do
+            echo -n "Ingrese el nombre del usuario (o 'salir' para terminar): "
+            read username
+
+            if [[ -z "$username" ]]; then
+                echo "El nombre de usuario no puede estar vacío. Intente de nuevo."
+                continue
+            fi
+
+            break
+        done
+
         if [[ "$username" == "salir" ]]; then
             echo "Finalizando creación de usuarios."
             break
