@@ -45,21 +45,22 @@ ftpd_banner=Bienvenido al servidor FTP.
 EOF
 }
 
-# Función para crear estructura de directorios y establecer permisos
 crear_estructura_directorios() {
     FTP_ROOT="/srv/ftp"
     echo "Creando estructura de directorios..."
     mkdir -p $FTP_ROOT/{anon,autenticados,grupos/general,grupos/reprobados,grupos/recursadores}
 
-    sudo chmod 775 $FTP_ROOT/grupos/general
+    sudo chmod 2775 $FTP_ROOT/grupos/general
     sudo chown root:ftp $FTP_ROOT/grupos/general
+
+    sudo setfacl -d -m u::rwx $FTP_ROOT/grupos/general
+    sudo setfacl -d -m g::r-x $FTP_ROOT/grupos/general
+    sudo setfacl -d -m o::r-x $FTP_ROOT/grupos/general
 
     sudo chmod 770 $FTP_ROOT/grupos/reprobados
     sudo chmod 770 $FTP_ROOT/grupos/recursadores
     sudo chown root:reprobados $FTP_ROOT/grupos/reprobados
     sudo chown root:recursadores $FTP_ROOT/grupos/recursadores
-
-    sudo setfacl -d -m o::r $FTP_ROOT/grupos/general
 
     mkdir -p $FTP_ROOT/anon/general
     sudo mount --bind $FTP_ROOT/grupos/general $FTP_ROOT/anon/general
