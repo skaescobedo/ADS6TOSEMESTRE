@@ -1,6 +1,3 @@
-# Importar el módulo de utilidades externas
-Import-Module "C:\Users\Administrator\Desktop\librerianueva.ps1"
-
 # Función para instalar características necesarias
 function Instalar-Caracteristicas {
     Write-Host "Instalando el servidor web y el servidor FTP con todas sus características..."

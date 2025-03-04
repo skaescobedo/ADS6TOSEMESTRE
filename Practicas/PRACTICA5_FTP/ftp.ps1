@@ -1,5 +1,5 @@
-# Cargar el módulo donde están definidas todas las funciones
-. "C:\ruta\a\FTP-Modulo.ps1"  # Asegúrate de ajustar la ruta al módulo
+# Importar el módulo de utilidades externas
+Import-Module "C:\Users\Administrator\Desktop\librerianueva.ps1"
 
 # Función principal que ejecuta todo el flujo
 function Configurar-FTP-Completo {
