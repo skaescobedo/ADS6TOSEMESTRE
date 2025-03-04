@@ -155,24 +155,6 @@ function Reiniciar-FTP {
     Restart-WebItem "IIS:\Sites\FTP"
 }
 
-# Función principal para ejecutar el flujo completo
-function Configurar-FTP-Completo {
-    Instalar-Caracteristicas
-    Crear-Estructura-FTP
-    Crear-Sitio-FTP
-    Configurar-UserIsolation
-    Crear-Grupos-Locales
-    Crear-Usuario-FTP
-    Configurar-Autenticacion-Permisos
-    Configurar-TLS
-    Reiniciar-FTP
-
-    Write-Host "¡Servidor FTP configurado correctamente!"
-}
-
-# Llama a la función principal
-Configurar-FTP-Completo
-
 function comprobarPassword {
     param (
         [string]$clave
