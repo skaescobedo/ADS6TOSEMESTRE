@@ -213,9 +213,9 @@ validar_contraseña() {
 
     while true; do
         echo "Ingrese la contraseña para el usuario $username (máximo 20 caracteres):"
-        read -s password1
+        read password1
         echo "Confirme la contraseña:"
-        read -s password2
+        read password2
 
         if [ -z "$password1" ]; then
             echo "La contraseña no puede estar vacía. Intente de nuevo."
