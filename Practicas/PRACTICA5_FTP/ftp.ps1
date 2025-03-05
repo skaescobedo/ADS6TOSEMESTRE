@@ -6,11 +6,11 @@ function Configurar-FTP-Completo {
     #Instalar-Caracteristicas
     Crear-Estructura-FTP
     Crear-Sitio-FTP
+    Configurar-TLS
     Configurar-UserIsolation
     Crear-Grupos-Locales
     Crear-Usuario-FTP
     Configurar-Autenticacion-Permisos
-    Configurar-TLS
     Reiniciar-FTP
 
     Write-Host "¡Servidor FTP configurado correctamente!"

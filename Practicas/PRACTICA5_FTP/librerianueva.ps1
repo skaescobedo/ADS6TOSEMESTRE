@@ -46,27 +46,48 @@ function Crear-Grupos-Locales {
     }
 }
 
-# Función para crear un usuario y sus carpetas asociadas
 function Crear-Usuario-FTP {
-    $SistemaUsuarios = [ADSI]"WinNT://$env:ComputerName"
-
     do {
+        $nombreUsuario = ""
+        $usuarioValido = $false  # Bandera de validación de existencia
+
         do {
             $nombreUsuario = Read-Host "Introduce el nombre del usuario (o escribe 'salir' para terminar)"
+
+            if ($nombreUsuario -eq "salir") { 
+                return  # Salir del proceso
+            }
+
             if ([string]::IsNullOrWhiteSpace($nombreUsuario)) {
                 Write-Host "El nombre de usuario no puede estar vacío. Intenta de nuevo."
+                continue
             }
-        } while ([string]::IsNullOrWhiteSpace($nombreUsuario))
 
-        if ($nombreUsuario -eq "salir") { break }
+            if ($nombreUsuario.Length -gt 20) {
+                Write-Host "El nombre de usuario no puede tener más de 20 caracteres. Intenta de nuevo."
+                continue
+            }
 
+            # Validar si el usuario existe usando Get-LocalUser
+            try {
+                Get-LocalUser -Name $nombreUsuario | Out-Null
+                Write-Host "El usuario '$nombreUsuario' ya existe. Intenta con otro nombre."
+            } catch {
+                # Si lanza error, el usuario no existe, lo consideramos válido.
+                $usuarioValido = $true
+            }
+
+        } while (-not $usuarioValido)
+
+        # Validar contraseña
         do {
-            $claveUsuario = Read-Host "Introduce la contraseña (8 caracteres, una mayúscula, una minúscula, un dígito y un carácter especial)"
+            $claveUsuario = Read-Host "Introduce la contraseña (mínimo 8 caracteres, una mayúscula, una minúscula, un dígito y un carácter especial)"
             if (-not (comprobarPassword -clave $claveUsuario)) {
-                Write-Host "La contraseña no cumple con los requisitos, intenta de nuevo."
+                Write-Host "La contraseña no cumple con los requisitos. Intenta de nuevo."
             }
         } while (-not (comprobarPassword -clave $claveUsuario))
 
+        # Seleccionar grupo
         do {
             Write-Host "Selecciona el grupo para el usuario:"
             Write-Host "1) Reprobados"
@@ -86,18 +107,14 @@ function Crear-Usuario-FTP {
             }
         } while ($true)
 
-        $usuarioObj = [ADSI]"WinNT://$env:ComputerName/$nombreUsuario"
-        if (-not $usuarioObj.Path) {
-            $usuarioNuevo = $SistemaUsuarios.Create("User", $nombreUsuario)
-            $usuarioNuevo.SetPassword($claveUsuario)
-            $usuarioNuevo.SetInfo()
-        } else {
-            Write-Host "El usuario $nombreUsuario ya existe."
-        }
+        # Crear el usuario usando New-LocalUser
+        $securePassword = ConvertTo-SecureString -String $claveUsuario -AsPlainText -Force
+        New-LocalUser -Name $nombreUsuario -Password $securePassword -FullName $nombreUsuario -Description "Usuario FTP"
 
-        $grupoADS = [ADSI]"WinNT://$env:ComputerName/$grupoFTP,group"
-        $grupoADS.Invoke("Add", "WinNT://$env:ComputerName/$nombreUsuario,user")
+        # Agregar al grupo
+        Add-LocalGroupMember -Group $grupoFTP -Member $nombreUsuario
 
+        # Crear carpetas y symlinks
         $rutaUsuario = "C:\FTP\LocalUser\$nombreUsuario"
         New-Item -ItemType Directory -Path $rutaUsuario -Force
         New-Item -ItemType Directory -Path "$rutaUsuario\$nombreUsuario" -Force
@@ -108,7 +125,6 @@ function Crear-Usuario-FTP {
         Write-Host "Usuario $nombreUsuario creado y vinculado correctamente a general y $grupoFTP."
     } while ($true)
 }
-
 
 # Función para crear symlinks
 function Crear-Symlink {
@@ -159,12 +175,11 @@ function comprobarPassword {
     param (
         [string]$clave
     )
+    $regex = "^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,16}$"
 
-    if ($clave.Length -lt 8) { return $false }
-    if ($clave -notmatch "[A-Z]") { return $false }
-    if ($clave -notmatch "[a-z]") { return $false }
-    if ($clave -notmatch "\d") { return $false }
-    if ($clave -notmatch "[!@#\$%\^&\*]") { return $false }
-
-    return $true
+    if ($clave -match $regex) {
+        return $true
+    } else {
+        return $false
+    }
 }
