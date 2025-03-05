@@ -71,27 +71,39 @@ crear_estructura_directorios() {
     sudo groupadd -f recursadores
 }
 
+
 # Función para crear un usuario autenticado y sus carpetas
 crear_usuario() {
     FTP_ROOT="/srv/ftp"
+
+    # Validar si los grupos existen
+    if ! getent group "reprobados" > /dev/null 2>&1; then
+        echo "El grupo 'reprobados' no existe. No se puede crear el usuario."
+        return 1
+    fi
+
+    if ! getent group "recursadores" > /dev/null 2>&1; then
+        echo "El grupo 'recursadores' no existe. No se puede crear el usuario."
+        return 1
+    fi
 
     while true; do
         while true; do
             echo -n "Ingrese el nombre del usuario (o 'salir' para terminar): "
             read username
 
-            if [[ -z "$username" ]]; then
-                echo "El nombre de usuario no puede estar vacío. Intente de nuevo."
+            if [[ "$username" == "salir" ]]; then
+                echo "Finalizando creación de usuarios."
+                break 2
+            fi
+
+            # Validar nombre de usuario
+            if ! validar_nombre_usuario "$username"; then
                 continue
             fi
 
             break
         done
-
-        if [[ "$username" == "salir" ]]; then
-            echo "Finalizando creación de usuarios."
-            break
-        fi
 
         echo "Seleccione el grupo: (1) reprobados (2) recursadores"
         read group_option
@@ -139,4 +151,57 @@ configurar_firewall_y_vsftpd() {
 
     sudo systemctl restart vsftpd
     sudo ufw enable
+}
+
+# Función para validar el nombre de usuario
+validar_nombre_usuario() {
+    nombre_usuario=$1
+
+    # Verificar que no esté vacío
+    if [[ -z "$nombre_usuario" ]]; then
+        echo "El nombre de usuario está vacío."
+        return 1
+    fi
+
+    # Verificar longitud máxima
+    if [[ ${#nombre_usuario} -gt 32 ]]; then
+        echo "El nombre de usuario es demasiado largo (máximo 32 caracteres)."
+        return 1
+    fi
+
+    # Verificar que no empiece con un número
+    if [[ "$nombre_usuario" =~ ^[0-9] ]]; then
+        echo "El nombre de usuario no puede comenzar con un número."
+        return 1
+    fi
+
+    # Verificar caracteres permitidos (solo letras, números, guion bajo y guion)
+    if [[ "$nombre_usuario" =~ [^a-zA-Z0-9_-] ]]; then
+        echo "El nombre de usuario contiene caracteres no permitidos."
+        return 1
+    fi
+
+    # Verificar que no contenga espacios
+    if [[ "$nombre_usuario" =~ [[:space:]] ]]; then
+        echo "El nombre de usuario no puede contener espacios."
+        return 1
+    fi
+
+    # Verificar que no sea un nombre reservado
+    nombres_reservados=("root" "admin" "bin" "daemon" "www-data" "ftp" "syslog" "messagebus")
+    for nombre_reservado in "${nombres_reservados[@]}"; do
+        if [[ "$nombre_usuario" == "$nombre_reservado" ]]; then
+            echo "El nombre de usuario '$nombre_usuario' es un nombre reservado del sistema."
+            return 1
+        fi
+    done
+
+    # Verificar si el nombre de usuario ya existe
+    if getent passwd "$nombre_usuario" > /dev/null 2>&1; then
+        echo "El nombre de usuario '$nombre_usuario' ya existe en el sistema."
+        return 1
+    fi
+
+    echo "El nombre de usuario '$nombre_usuario' es válido."
+    return 0
 }
