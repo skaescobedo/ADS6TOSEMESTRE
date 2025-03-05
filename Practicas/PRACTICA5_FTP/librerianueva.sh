@@ -78,12 +78,12 @@ crear_usuario() {
 
     # Validar si los grupos existen
     if ! getent group "reprobados" > /dev/null 2>&1; then
-        echo "El grupo 'reprobados' no existe. No se puede crear el usuario."
+        echo "No existe ningun grupo. No se puede terminar con la creación del usuario"
         return 1
     fi
 
     if ! getent group "recursadores" > /dev/null 2>&1; then
-        echo "El grupo 'recursadores' no existe. No se puede crear el usuario."
+        echo "No existe ningun grupo. No se puede terminar con la creación del usuario"
         return 1
     fi
 
