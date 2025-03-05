@@ -72,18 +72,16 @@ crear_estructura_directorios() {
 }
 
 
-# Función para crear un usuario autenticado y sus carpetas
 crear_usuario() {
     FTP_ROOT="/srv/ftp"
 
-    # Validar si los grupos existen
     if ! getent group "reprobados" > /dev/null 2>&1; then
-        echo "No existe ningun grupo. No se puede terminar con la creación del usuario"
+        echo "No existe ningún grupo. No se puede terminar con la creación del usuario"
         return 1
     fi
 
     if ! getent group "recursadores" > /dev/null 2>&1; then
-        echo "No existe ningun grupo. No se puede terminar con la creación del usuario"
+        echo "No existe ningún grupo. No se puede terminar con la creación del usuario"
         return 1
     fi
 
@@ -97,7 +95,6 @@ crear_usuario() {
                 break 2
             fi
 
-            # Validar nombre de usuario
             if ! validar_nombre_usuario "$username"; then
                 continue
             fi
@@ -118,7 +115,12 @@ crear_usuario() {
         fi
 
         sudo useradd -m -d $FTP_ROOT/autenticados/$username -s /bin/bash -G $group $username
-        sudo passwd $username
+
+        # Llamada a la función validar_contraseña
+        validar_contraseña
+        local password="$CONTRASENA_VALIDADA"
+
+        echo "$username:$password" | sudo chpasswd
 
         sudo mkdir -p $FTP_ROOT/autenticados/$username/{general,$group,$username}
         sudo chown $username:$username $FTP_ROOT/autenticados/$username
@@ -204,6 +206,36 @@ validar_nombre_usuario() {
 
     echo "El nombre de usuario '$nombre_usuario' es válido."
     return 0
+}
+
+validar_contraseña() {
+    local password1 password2
+
+    while true; do
+        echo "Ingrese la contraseña para el usuario $username (máximo 20 caracteres):"
+        read -s password1
+        echo "Confirme la contraseña:"
+        read -s password2
+
+        if [ -z "$password1" ]; then
+            echo "La contraseña no puede estar vacía. Intente de nuevo."
+            continue
+        fi
+
+        if [ "$password1" != "$password2" ]; then
+            echo "Las contraseñas no coinciden. Intente de nuevo."
+            continue
+        fi
+
+        if [ ${#password1} -gt 20 ]; then
+            echo "La contraseña es demasiado larga (máximo 20 caracteres). Intente de nuevo."
+            continue
+        fi
+
+        # Si pasa todas las validaciones, retornamos la contraseña
+        CONTRASENA_VALIDADA="$password1"
+        return 0
+    done
 }
 
 eliminar_usuario() {
