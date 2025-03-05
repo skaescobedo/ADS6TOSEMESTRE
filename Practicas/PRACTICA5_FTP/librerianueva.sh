@@ -183,8 +183,14 @@ validar_nombre_usuario() {
         return 1
     fi
 
-    # Verificar caracteres permitidos (solo letras, números, guion bajo, y guion)
-    if [[ "$nombre_usuario" =~ [^a-zA-Z0-9_-] ]]; then
+    # Verificar que no empiece con un punto
+    if [[ "$nombre_usuario" =~ ^\. ]]; then
+        echo "El nombre de usuario no puede comenzar con un punto ('.')."
+        return 1
+    fi
+
+    # Verificar caracteres permitidos (solo letras, números, guion bajo, guion, y punto en medio o al final)
+    if [[ "$nombre_usuario" =~ [^a-zA-Z0-9._-] ]]; then
         echo "El nombre de usuario contiene caracteres no permitidos."
         return 1
     fi
