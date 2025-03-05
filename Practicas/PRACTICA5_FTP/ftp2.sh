@@ -5,6 +5,7 @@ source ./librerianueva.sh
 
 # Función para mostrar el menú
 mostrar_menu() {
+    clear
     echo "==========================================="
     echo "   Menú de Configuración del Servidor FTP   "
     echo "==========================================="
@@ -28,18 +29,22 @@ while true; do
             instalar_dependencias
             configurar_vsftpd
             configurar_firewall_y_vsftpd
+            read -p "Presione cualquier tecla para continuar..." -n 1 -s
             ;;
         2)
             echo "Creando estructura de directorios..."
             crear_estructura_directorios
+            read -p "Presione cualquier tecla para continuar..." -n 1 -s
             ;;
         3)
             echo "Creando usuario..."
             crear_usuario
+            read -p "Presione cualquier tecla para continuar..." -n 1 -s
             ;;
         4)
             echo "Eliminando usuario..."
             eliminar_usuario    # Llama a la función eliminar_usuario
+            read -p "Presione cualquier tecla para continuar..." -n 1 -s
             ;;
         5)
             echo "Saliendo..."
@@ -47,6 +52,7 @@ while true; do
             ;;
         *)
             echo "Opción no válida, por favor seleccione entre 1 y 5."
+            read -p "Presione cualquier tecla para continuar..." -n 1 -s
             ;;
     esac
 done
