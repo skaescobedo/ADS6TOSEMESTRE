@@ -48,46 +48,36 @@ function Crear-Grupos-Locales {
 
 function Crear-Usuario-FTP {
     do {
-        $nombreUsuario = ""
-        $usuarioValido = $false  # Bandera de validación de existencia
-
         do {
-            $nombreUsuario = Read-Host "Introduce el nombre del usuario (o escribe 'salir' para terminar)"
-
-            if ($nombreUsuario -eq "salir") { 
-                return  # Salir del proceso
-            }
-
+            $nombreUsuario = Read-Host "Introduce el nombre del usuario (máximo 20 caracteres, o escribe 'salir' para terminar)"
+            
             if ([string]::IsNullOrWhiteSpace($nombreUsuario)) {
                 Write-Host "El nombre de usuario no puede estar vacío. Intenta de nuevo."
                 continue
             }
 
+            if ($nombreUsuario -eq "salir") { return }
+
             if ($nombreUsuario.Length -gt 20) {
                 Write-Host "El nombre de usuario no puede tener más de 20 caracteres. Intenta de nuevo."
+                $nombreUsuario = $null
                 continue
             }
 
-            # Validar si el usuario existe usando Get-LocalUser
-            try {
-                Get-LocalUser -Name $nombreUsuario | Out-Null
-                Write-Host "El usuario '$nombreUsuario' ya existe. Intenta con otro nombre."
-            } catch {
-                # Si lanza error, el usuario no existe, lo consideramos válido.
-                $usuarioValido = $true
+            if (Get-LocalUser -Name $nombreUsuario -ErrorAction SilentlyContinue) {
+                Write-Host "El usuario $nombreUsuario ya existe. Introduce un nombre diferente."
+                $nombreUsuario = $null
             }
 
-        } while (-not $usuarioValido)
+        } while (-not $nombreUsuario)
 
-        # Validar contraseña
         do {
-            $claveUsuario = Read-Host "Introduce la contraseña (mínimo 8 caracteres, una mayúscula, una minúscula, un dígito y un carácter especial)"
+            $claveUsuario = Read-Host "Introduce la contraseña (8 caracteres, una mayúscula, una minúscula, un dígito y un carácter especial)"
             if (-not (comprobarPassword -clave $claveUsuario)) {
-                Write-Host "La contraseña no cumple con los requisitos. Intenta de nuevo."
+                Write-Host "La contraseña no cumple con los requisitos, intenta de nuevo."
             }
         } while (-not (comprobarPassword -clave $claveUsuario))
 
-        # Seleccionar grupo
         do {
             Write-Host "Selecciona el grupo para el usuario:"
             Write-Host "1) Reprobados"
@@ -107,18 +97,25 @@ function Crear-Usuario-FTP {
             }
         } while ($true)
 
-        # Crear el usuario usando New-LocalUser
+        # Crear el usuario ya que no existía
         $securePassword = ConvertTo-SecureString -String $claveUsuario -AsPlainText -Force
-        New-LocalUser -Name $nombreUsuario -Password $securePassword -FullName $nombreUsuario -Description "Usuario FTP"
+        New-LocalUser -Name $nombreUsuario -Password $securePassword -Description "Usuario FTP" -AccountNeverExpires
 
-        # Agregar al grupo
+        # Validar que el grupo exista, si no lo crea
+        if (-not (Get-LocalGroup -Name $grupoFTP -ErrorAction SilentlyContinue)) {
+            Write-Host "El grupo $grupoFTP no existe. Creándolo..."
+            New-LocalGroup -Name $grupoFTP
+        }
+
+        # Agregar usuario al grupo correspondiente
         Add-LocalGroupMember -Group $grupoFTP -Member $nombreUsuario
 
-        # Crear carpetas y symlinks
+        # Crear carpetas de usuario
         $rutaUsuario = "C:\FTP\LocalUser\$nombreUsuario"
         New-Item -ItemType Directory -Path $rutaUsuario -Force
         New-Item -ItemType Directory -Path "$rutaUsuario\$nombreUsuario" -Force
 
+        # Crear enlaces simbólicos (función existente)
         Crear-Symlink "$rutaUsuario\general" "C:\FTP\LocalUser\Public\general"
         Crear-Symlink "$rutaUsuario\$grupoFTP" $rutaGrupo
 
