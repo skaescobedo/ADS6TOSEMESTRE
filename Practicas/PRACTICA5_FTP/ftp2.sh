@@ -43,7 +43,7 @@ while true; do
             ;;
         4)
             echo "Eliminando usuario..."
-            eliminar_usuario    # Llama a la función eliminar_usuario
+            eliminar_usuario    
             read -p "Presione cualquier tecla para continuar..." -n 1 -s
             ;;
         5)
