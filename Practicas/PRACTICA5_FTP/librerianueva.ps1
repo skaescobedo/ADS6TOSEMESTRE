@@ -50,23 +50,12 @@ function Crear-Usuario-FTP {
     do {
         do {
             $nombreUsuario = Read-Host "Introduce el nombre del usuario (máximo 20 caracteres, o escribe 'salir' para terminar)"
-            
-            if ([string]::IsNullOrWhiteSpace($nombreUsuario)) {
-                Write-Host "El nombre de usuario no puede estar vacío. Intenta de nuevo."
-                continue
-            }
 
             if ($nombreUsuario -eq "salir") { return }
 
-            if ($nombreUsuario.Length -gt 20) {
-                Write-Host "El nombre de usuario no puede tener más de 20 caracteres. Intenta de nuevo."
-                $nombreUsuario = $null
+            if (-not (Validar-NombreUsuario -nombreUsuario $nombreUsuario)) {
+                $nombreUsuario = $null  # Forzar que se repita el ciclo hasta que el nombre sea válido
                 continue
-            }
-
-            if (Get-LocalUser -Name $nombreUsuario -ErrorAction SilentlyContinue) {
-                Write-Host "El usuario $nombreUsuario ya existe. Introduce un nombre diferente."
-                $nombreUsuario = $null
             }
 
         } while (-not $nombreUsuario)
@@ -97,7 +86,7 @@ function Crear-Usuario-FTP {
             }
         } while ($true)
 
-        # Crear el usuario ya que no existía
+        # Crear el usuario ya que pasó todas las validaciones
         $securePassword = ConvertTo-SecureString -String $claveUsuario -AsPlainText -Force
         New-LocalUser -Name $nombreUsuario -Password $securePassword -Description "Usuario FTP" -AccountNeverExpires
 
@@ -179,4 +168,57 @@ function comprobarPassword {
     } else {
         return $false
     }
+}
+
+function Validar-NombreUsuario {
+    param (
+        [string]$nombreUsuario
+    )
+
+    # Lista de nombres reservados en Windows
+    $nombresReservados = @(
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    )
+
+    # Caracteres inválidos
+    $caracteresInvalidos = '[<>:"/\\|?*]'
+
+    if ([string]::IsNullOrWhiteSpace($nombreUsuario)) {
+        Write-Host "El nombre de usuario no puede estar vacío."
+        return $false
+    }
+
+    if ($nombreUsuario.Length -gt 20) {
+        Write-Host "El nombre de usuario no puede tener más de 20 caracteres."
+        return $false
+    }
+
+    if ($nombreUsuario -match $caracteresInvalidos) {
+        Write-Host "El nombre de usuario contiene caracteres no permitidos (< > : "" / \ | ? *)."
+        return $false
+    }
+
+    if ($nombreUsuario -match '^\s|\s$') {
+        Write-Host "El nombre de usuario no puede comenzar ni terminar con un espacio."
+        return $false
+    }
+
+    if ($nombreUsuario -match '\.$') {
+        Write-Host "El nombre de usuario no puede terminar con un punto."
+        return $false
+    }
+
+    if ($nombreUsuario -in $nombresReservados) {
+        Write-Host "El nombre de usuario '$nombreUsuario' es un nombre reservado por Windows."
+        return $false
+    }
+
+    if (Get-LocalUser -Name $nombreUsuario -ErrorAction SilentlyContinue) {
+        Write-Host "El usuario '$nombreUsuario' ya existe."
+        return $false
+    }
+
+    return $true
 }
