@@ -11,9 +11,10 @@ mostrar_menu() {
     echo "1) Instalar dependencias, configurar vsftpd y firewall"
     echo "2) Crear estructura de directorios"
     echo "3) Crear usuario"
-    echo "4) Salir"
+    echo "4) Eliminar usuario"                
+    echo "5) Salir"
     echo "==========================================="
-    echo -n "Seleccione una opción [1-4]: "
+    echo -n "Seleccione una opción [1-5]: "
 }
 
 # Flujo principal
@@ -37,11 +38,15 @@ while true; do
             crear_usuario
             ;;
         4)
+            echo "Eliminando usuario..."
+            eliminar_usuario    # Llama a la función eliminar_usuario
+            ;;
+        5)
             echo "Saliendo..."
             break
             ;;
         *)
-            echo "Opción no válida, por favor seleccione entre 1 y 4."
+            echo "Opción no válida, por favor seleccione entre 1 y 5."
             ;;
     esac
 done

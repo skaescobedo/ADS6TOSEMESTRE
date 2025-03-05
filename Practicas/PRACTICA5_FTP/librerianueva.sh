@@ -205,3 +205,41 @@ validar_nombre_usuario() {
     echo "El nombre de usuario '$nombre_usuario' es válido."
     return 0
 }
+
+eliminar_usuario() {
+    FTP_ROOT="/srv/ftp"
+
+    echo -n "Ingrese el nombre del usuario a eliminar: "
+    read username
+
+    # Verificar si el usuario existe
+    if ! id "$username" &>/dev/null; then
+        echo "El usuario '$username' no existe. Saliendo..."
+        return 1
+    fi
+
+    echo "Eliminando usuario '$username' y sus recursos..."
+
+    # Desmontar directorios si están montados
+    if mountpoint -q "$FTP_ROOT/autenticados/$username/general"; then
+        sudo umount "$FTP_ROOT/autenticados/$username/general"
+    fi
+
+    if mountpoint -q "$FTP_ROOT/autenticados/$username/reprobados"; then
+        sudo umount "$FTP_ROOT/autenticados/$username/reprobados"
+    fi
+
+    if mountpoint -q "$FTP_ROOT/autenticados/$username/recursadores"; then
+        sudo umount "$FTP_ROOT/autenticados/$username/recursadores"
+    fi
+
+    # Eliminar el usuario
+    sudo userdel -r "$username"
+
+    # Eliminar el directorio del usuario si aún existe
+    if [ -d "$FTP_ROOT/autenticados/$username" ]; then
+        sudo rm -rf "$FTP_ROOT/autenticados/$username"
+    fi
+
+    echo "Usuario '$username' eliminado correctamente."
+}
