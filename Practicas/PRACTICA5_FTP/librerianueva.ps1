@@ -47,6 +47,22 @@ function Crear-Grupos-Locales {
 }
 
 function Crear-Usuario-FTP {
+    $gruposRequeridos = @("reprobados", "recursadores")
+    $gruposFaltantes = @()
+
+    foreach ($grupo in $gruposRequeridos) {
+        if (-not (Get-LocalGroup -Name $grupo -ErrorAction SilentlyContinue)) {
+            $gruposFaltantes += $grupo
+        }
+    }
+
+    if ($gruposFaltantes.Count -gt 0) {
+        Write-Host "No se pueden crear usuarios porque faltan los siguientes grupos locales: $($gruposFaltantes -join ', ')"
+        Write-Host "Ejecuta la opción 'Crear grupos locales' antes de crear usuarios." -ForegroundColor Red
+        return
+    }
+
+    # --- Aquí sigue el flujo normal de crear usuario (sin cambios) ---
     do {
         do {
             $nombreUsuario = Read-Host "Introduce el nombre del usuario (máximo 20 caracteres, o escribe 'salir' para terminar)"
@@ -90,7 +106,7 @@ function Crear-Usuario-FTP {
         $securePassword = ConvertTo-SecureString -String $claveUsuario -AsPlainText -Force
         New-LocalUser -Name $nombreUsuario -Password $securePassword -Description "Usuario FTP" -AccountNeverExpires
 
-        # Validar que el grupo exista, si no lo crea
+        # Validar que el grupo exista, si no lo crea (esto es redundante, podría eliminarse gracias a la validación inicial)
         if (-not (Get-LocalGroup -Name $grupoFTP -ErrorAction SilentlyContinue)) {
             Write-Host "El grupo $grupoFTP no existe. Creándolo..."
             New-LocalGroup -Name $grupoFTP
@@ -221,4 +237,60 @@ function Validar-NombreUsuario {
     }
 
     return $true
+}
+
+function Eliminar-Usuario-FTP {
+    param (
+        [string]$nombreUsuario
+    )
+
+    if ([string]::IsNullOrWhiteSpace($nombreUsuario)) {
+        Write-Host "Debes proporcionar un nombre de usuario válido." -ForegroundColor Red
+        return
+    }
+
+    # Validar que el usuario exista
+    if (-not (Get-LocalUser -Name $nombreUsuario -ErrorAction SilentlyContinue)) {
+        Write-Host "El usuario '$nombreUsuario' no existe." -ForegroundColor Red
+        return
+    }
+
+    # Confirmación
+    $confirmacion = Read-Host "¿Estás seguro que deseas eliminar al usuario '$nombreUsuario' y su directorio? (S/N)"
+    if ($confirmacion -ne 'S') {
+        Write-Host "Operación cancelada." -ForegroundColor Yellow
+        return
+    }
+
+    try {
+        # Eliminar el usuario local
+        Remove-LocalUser -Name $nombreUsuario -ErrorAction Stop
+        Write-Host "Usuario '$nombreUsuario' eliminado correctamente."
+
+        # Ruta base de la carpeta de usuario
+        $rutaUsuario = "C:\FTP\LocalUser\$nombreUsuario"
+
+        if (Test-Path $rutaUsuario) {
+            # Buscar y eliminar cualquier symlink dentro de la carpeta de usuario
+            $items = Get-ChildItem -Path $rutaUsuario -Force
+
+            foreach ($item in $items) {
+                if ($item.LinkType -eq 'SymbolicLink') {
+                    Write-Host "Eliminando enlace simbólico: $($item.FullName)"
+                    Remove-Item -Path $item.FullName -Force -ErrorAction Stop
+                }
+            }
+
+            # Finalmente eliminar la carpeta completa
+            Remove-Item -Path $rutaUsuario -Recurse -Force -ErrorAction Stop
+            Write-Host "Directorio '$rutaUsuario' eliminado correctamente."
+        } else {
+            Write-Host "El directorio '$rutaUsuario' no existía." -ForegroundColor Yellow
+        }
+
+        Write-Host "El usuario y sus datos fueron eliminados correctamente." -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Error al eliminar el usuario o su directorio: $_" -ForegroundColor Red
+    }
 }
