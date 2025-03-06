@@ -250,9 +250,8 @@ validar_contraseña() {
     done
 }
 
+# Función para eliminar un usuario FTP y limpiar sus recursos
 eliminar_usuario() {
-    FTP_ROOT="/srv/ftp"
-
     echo -n "Ingrese el nombre del usuario a eliminar: "
     read username
 
@@ -262,28 +261,66 @@ eliminar_usuario() {
         return 1
     fi
 
-    echo "Eliminando usuario '$username' y sus recursos..."
+    echo "Eliminando usuario '$username'..."
 
-    # Desmontar directorios si están montados
-    if mountpoint -q "$FTP_ROOT/autenticados/$username/general"; then
-        sudo umount "$FTP_ROOT/autenticados/$username/general"
+    # Determinar el grupo al que pertenece (reprobados o recursadores)
+    group=$(id -nG "$username" | grep -Eo "reprobados|recursadores")
+
+    echo "Matando procesos activos de '$username' (incluyendo FTP)..."
+    sudo pkill -u "$username" 2>/dev/null
+
+    # Verificar si hay procesos activos usando el directorio
+    if sudo lsof +D "$FTP_ROOT/autenticados/$username" > /dev/null 2>&1; then
+        echo "Hay procesos usando el directorio. Aplicando lazy unmount (umount -l)..."
+        sudo umount -l "$FTP_ROOT/autenticados/$username/general"
+        if [ -n "$group" ]; then
+            sudo umount -l "$FTP_ROOT/autenticados/$username/$group"
+        fi
+    else
+        echo "Desmontando directorios bind..."
+
+        if mountpoint -q "$FTP_ROOT/autenticados/$username/general"; then
+            sudo umount "$FTP_ROOT/autenticados/$username/general"
+            if [ $? -ne 0 ]; then
+                echo "Error al desmontar $FTP_ROOT/autenticados/$username/general"
+                return 1
+            fi
+        fi
+
+        if [ -n "$group" ] && mountpoint -q "$FTP_ROOT/autenticados/$username/$group"; then
+            sudo umount "$FTP_ROOT/autenticados/$username/$group"
+            if [ $? -ne 0 ]; then
+                echo "Error al desmontar $FTP_ROOT/autenticados/$username/$group"
+                return 1
+            fi
+        fi
     fi
 
-    if mountpoint -q "$FTP_ROOT/autenticados/$username/reprobados"; then
-        sudo umount "$FTP_ROOT/autenticados/$username/reprobados"
-    fi
-
-    if mountpoint -q "$FTP_ROOT/autenticados/$username/recursadores"; then
-        sudo umount "$FTP_ROOT/autenticados/$username/recursadores"
+    # Limpiar el /etc/fstab (quitar entradas del usuario)
+    sudo sed -i "\|$FTP_ROOT/autenticados/$username|d" /etc/fstab
+    if [ $? -ne 0 ]; then
+        echo "Error al limpiar /etc/fstab para el usuario '$username'."
+        return 1
     fi
 
     # Eliminar el usuario
     sudo userdel -r "$username"
-
-    # Eliminar el directorio del usuario si aún existe
-    if [ -d "$FTP_ROOT/autenticados/$username" ]; then
-        sudo rm -rf "$FTP_ROOT/autenticados/$username"
+    if [ $? -ne 0 ]; then
+        echo "Advertencia: No se pudo eliminar completamente al usuario '$username'."
+    else
+        echo "Usuario '$username' eliminado correctamente del sistema."
     fi
 
-    echo "Usuario '$username' eliminado correctamente."
+    # Eliminar el directorio manualmente (por si no lo borró userdel -r)
+    if [ -d "$FTP_ROOT/autenticados/$username" ]; then
+        sudo rm -rf "$FTP_ROOT/autenticados/$username"
+        if [ $? -ne 0 ]; then
+            echo "Advertencia: No se pudo eliminar el directorio $FTP_ROOT/autenticados/$username."
+        else
+            echo "Directorio $FTP_ROOT/autenticados/$username eliminado correctamente."
+        fi
+    fi
+
+    echo "Eliminación de usuario '$username' completada."
+    return 0
 }
