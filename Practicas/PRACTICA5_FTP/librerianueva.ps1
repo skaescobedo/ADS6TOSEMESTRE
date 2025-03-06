@@ -241,38 +241,52 @@ function Validar-NombreUsuario {
 
 function Eliminar-Usuario-FTP {
     param (
-        [string]$nombreUsuario
+        [string]$nombreUsuario,
+        [switch]$Force
     )
 
+    # Advertencia inicial
+    Write-Host "ADVERTENCIA: Antes de ejecutar esta acción, asegúrate de que el usuario '$nombreUsuario' no esté conectado por FTP." -ForegroundColor Yellow
+
+    # Validar que el nombre de usuario no esté vacío
     if ([string]::IsNullOrWhiteSpace($nombreUsuario)) {
-        Write-Host "Debes proporcionar un nombre de usuario válido." -ForegroundColor Red
+        Write-Host "ERROR: Debes proporcionar un nombre de usuario válido." -ForegroundColor Red
         return
     }
 
     # Validar que el usuario exista
-    if (-not (Get-LocalUser -Name $nombreUsuario -ErrorAction SilentlyContinue)) {
-        Write-Host "El usuario '$nombreUsuario' no existe." -ForegroundColor Red
+    $usuario = Get-LocalUser -Name $nombreUsuario -ErrorAction SilentlyContinue
+    if (-not $usuario) {
+        Write-Host "ERROR: El usuario '$nombreUsuario' no existe." -ForegroundColor Red
         return
     }
 
-    # Confirmación
-    $confirmacion = Read-Host "¿Estás seguro que deseas eliminar al usuario '$nombreUsuario' y su directorio? (S/N)"
-    if ($confirmacion -ne 'S') {
-        Write-Host "Operación cancelada." -ForegroundColor Yellow
-        return
+    # Confirmación interactiva si no se especifica -Force
+    if (-not $Force) {
+        $confirmacion = Read-Host "¿Estás seguro que deseas eliminar al usuario '$nombreUsuario' y su directorio? (S/N)"
+        if ($confirmacion -ne 'S') {
+            Write-Host "Operación cancelada por el usuario." -ForegroundColor Yellow
+            return
+        }
     }
 
+    # Intentar eliminación del usuario
     try {
-        # Eliminar el usuario local
         Remove-LocalUser -Name $nombreUsuario -ErrorAction Stop
-        Write-Host "Usuario '$nombreUsuario' eliminado correctamente."
+        Write-Host "Usuario '$nombreUsuario' eliminado correctamente." -ForegroundColor Green
+    }
+    catch {
+        Write-Host "ERROR: No se pudo eliminar el usuario '$nombreUsuario'. Detalle: $($_.Exception.Message)" -ForegroundColor Red
+        return
+    }
 
-        # Ruta base de la carpeta de usuario
-        $rutaUsuario = "C:\FTP\LocalUser\$nombreUsuario"
+    # Ruta base de la carpeta de usuario FTP
+    $rutaUsuario = "C:\FTP\LocalUser\$nombreUsuario"
 
-        if (Test-Path $rutaUsuario) {
-            # Buscar y eliminar cualquier symlink dentro de la carpeta de usuario
-            $items = Get-ChildItem -Path $rutaUsuario -Force
+    if (Test-Path $rutaUsuario) {
+        try {
+            # Buscar y eliminar cualquier enlace simbólico dentro de la carpeta de usuario
+            $items = Get-ChildItem -Path $rutaUsuario -Force -ErrorAction Stop
 
             foreach ($item in $items) {
                 if ($item.LinkType -eq 'SymbolicLink') {
@@ -281,16 +295,17 @@ function Eliminar-Usuario-FTP {
                 }
             }
 
-            # Finalmente eliminar la carpeta completa
+            # Eliminar la carpeta completa
             Remove-Item -Path $rutaUsuario -Recurse -Force -ErrorAction Stop
-            Write-Host "Directorio '$rutaUsuario' eliminado correctamente."
-        } else {
-            Write-Host "El directorio '$rutaUsuario' no existía." -ForegroundColor Yellow
+            Write-Host "Directorio '$rutaUsuario' eliminado correctamente." -ForegroundColor Green
         }
+        catch {
+            Write-Host "ERROR: No se pudo eliminar el directorio '$rutaUsuario'. Detalle: $($_.Exception.Message)" -ForegroundColor Red
+            return
+        }
+    } else {
+        Write-Host "AVISO: El directorio '$rutaUsuario' no existe. Continuando." -ForegroundColor Yellow
+    }
 
-        Write-Host "El usuario y sus datos fueron eliminados correctamente." -ForegroundColor Green
-    }
-    catch {
-        Write-Host "Error al eliminar el usuario o su directorio: $_" -ForegroundColor Red
-    }
+    Write-Host "El usuario '$nombreUsuario' y sus datos fueron eliminados correctamente." -ForegroundColor Green
 }
