@@ -252,6 +252,8 @@ validar_contraseña() {
 
 # Función para eliminar un usuario FTP y limpiar sus recursos
 eliminar_usuario() {
+    FTP_ROOT="/srv/ftp"
+
     echo -n "Ingrese el nombre del usuario a eliminar: "
     read username
 
@@ -266,33 +268,38 @@ eliminar_usuario() {
     # Determinar el grupo al que pertenece (reprobados o recursadores)
     group=$(id -nG "$username" | grep -Eo "reprobados|recursadores")
 
-    echo "Matando procesos activos de '$username' (incluyendo FTP)..."
+    echo "Matando procesos activos de '$username' (incluyendo sesiones FTP)..."
     sudo pkill -u "$username" 2>/dev/null
 
-    # Verificar si hay procesos activos usando el directorio
-    if sudo lsof +D "$FTP_ROOT/autenticados/$username" > /dev/null 2>&1; then
-        echo "Hay procesos usando el directorio. Aplicando lazy unmount (umount -l)..."
-        sudo umount -l "$FTP_ROOT/autenticados/$username/general"
-        if [ -n "$group" ]; then
+    # Eliminar carpeta personal del usuario (donde sólo él tiene acceso)
+    personal_folder="$FTP_ROOT/autenticados/$username/$username"
+    if [ -d "$personal_folder" ]; then
+        echo "Eliminando carpeta personal: $personal_folder"
+        sudo rm -rf "$personal_folder"
+        if [ $? -ne 0 ]; then
+            echo "Advertencia: No se pudo eliminar la carpeta personal $personal_folder."
+        else
+            echo "Carpeta personal eliminada correctamente."
+        fi
+    fi
+
+    echo "Desmontando directorios bind..."
+
+    # Desmontar general con fallback a lazy unmount
+    if mountpoint -q "$FTP_ROOT/autenticados/$username/general"; then
+        sudo umount "$FTP_ROOT/autenticados/$username/general"
+        if [ $? -ne 0 ]; then
+            echo "Desmontaje normal falló, aplicando lazy unmount en general."
+            sudo umount -l "$FTP_ROOT/autenticados/$username/general"
+        fi
+    fi
+
+    # Desmontar directorio de grupo con fallback a lazy unmount
+    if [ -n "$group" ] && mountpoint -q "$FTP_ROOT/autenticados/$username/$group"; then
+        sudo umount "$FTP_ROOT/autenticados/$username/$group"
+        if [ $? -ne 0 ]; then
+            echo "Desmontaje normal falló, aplicando lazy unmount en $group."
             sudo umount -l "$FTP_ROOT/autenticados/$username/$group"
-        fi
-    else
-        echo "Desmontando directorios bind..."
-
-        if mountpoint -q "$FTP_ROOT/autenticados/$username/general"; then
-            sudo umount "$FTP_ROOT/autenticados/$username/general"
-            if [ $? -ne 0 ]; then
-                echo "Error al desmontar $FTP_ROOT/autenticados/$username/general"
-                return 1
-            fi
-        fi
-
-        if [ -n "$group" ] && mountpoint -q "$FTP_ROOT/autenticados/$username/$group"; then
-            sudo umount "$FTP_ROOT/autenticados/$username/$group"
-            if [ $? -ne 0 ]; then
-                echo "Error al desmontar $FTP_ROOT/autenticados/$username/$group"
-                return 1
-            fi
         fi
     fi
 
@@ -311,13 +318,14 @@ eliminar_usuario() {
         echo "Usuario '$username' eliminado correctamente del sistema."
     fi
 
-    # Eliminar el directorio manualmente (por si no lo borró userdel -r)
+    # Eliminar el directorio raíz del usuario
     if [ -d "$FTP_ROOT/autenticados/$username" ]; then
+        echo "Eliminando directorio raíz del usuario: $FTP_ROOT/autenticados/$username"
         sudo rm -rf "$FTP_ROOT/autenticados/$username"
         if [ $? -ne 0 ]; then
-            echo "Advertencia: No se pudo eliminar el directorio $FTP_ROOT/autenticados/$username."
+            echo "Advertencia: No se pudo eliminar el directorio raíz $FTP_ROOT/autenticados/$username."
         else
-            echo "Directorio $FTP_ROOT/autenticados/$username eliminado correctamente."
+            echo "Directorio raíz eliminado correctamente."
         fi
     fi
 
