@@ -338,8 +338,6 @@ eliminar_usuario() {
 #HTTP
 #--------------------------------------------------------------------------------
 
-#!/bin/bash
-
 # Variables globales (compartidas entre las funciones)
 servicio=""
 version=""
