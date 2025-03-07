@@ -423,16 +423,105 @@ preguntar_puerto() {
     done
 }
 
-# Función que simula la instalación (puedes luego reemplazarla por la real)
 proceso_instalacion() {
     if [[ -z "$servicio" || -z "$version" || -z "$puerto" ]]; then
         echo "Debe seleccionar el servicio, la versión y el puerto antes de proceder con la instalación."
         return
     fi
 
-    echo "Iniciando instalación de $servicio versión $version en el puerto $puerto."
-    # Aquí es donde luego agregarías las funciones de instalación reales
+    echo "Iniciando instalación silenciosa de $servicio versión $version en el puerto $puerto..."
+
+    case $servicio in
+        "Apache")
+            instalar_apache
+            ;;
+        "Tomcat")
+            instalar_tomcat
+            ;;
+        "Nginx")
+            instalar_nginx
+            ;;
+        *)
+            echo "Servicio desconocido. No se puede proceder."
+            return 1
+            ;;
+    esac
+
+    echo "Instalación completada para $servicio versión $version en el puerto $puerto."
 }
+
+
+instalar_apache() {
+    echo "Descargando e instalando Apache versión $version..."
+
+    wget -q "https://downloads.apache.org/httpd/httpd-$version.tar.gz" -O "/tmp/httpd-$version.tar.gz"
+    if [[ $? -ne 0 ]]; then
+        echo "Error al descargar Apache $version."
+        return 1
+    fi
+
+    tar -xzf "/tmp/httpd-$version.tar.gz" -C /tmp
+    cd "/tmp/httpd-$version" || exit 1
+
+    ./configure --prefix=/usr/local/apache2 --enable-so > /dev/null
+    make > /dev/null
+    sudo make install > /dev/null
+
+    # Configurar puerto sin preguntar (usa la variable global $puerto)
+    sudo sed -i "s/Listen 80/Listen $puerto/" /usr/local/apache2/conf/httpd.conf
+
+    # Iniciar Apache
+    /usr/local/apache2/bin/apachectl start
+
+    echo "Apache $version instalado y configurado en el puerto $puerto."
+}
+
+instalar_tomcat() {
+    echo "Descargando e instalando Tomcat versión $version..."
+
+    wget -q "https://dlcdn.apache.org/tomcat/tomcat-10/v$version/bin/apache-tomcat-$version.tar.gz" -O "/tmp/tomcat-$version.tar.gz"
+    if [[ $? -ne 0 ]]; then
+        echo "Error al descargar Tomcat $version."
+        return 1
+    fi
+
+    sudo mkdir -p /opt/tomcat
+    sudo tar -xzf "/tmp/tomcat-$version.tar.gz" -C /opt/tomcat --strip-components=1
+
+    # Configurar puerto sin preguntar (usa la variable global $puerto)
+    sudo sed -i "s/Connector port=\"8080\"/Connector port=\"$puerto\"/" /opt/tomcat/conf/server.xml
+
+    # Iniciar Tomcat
+    /opt/tomcat/bin/startup.sh
+
+    echo "Tomcat $version instalado y configurado en el puerto $puerto."
+}
+
+instalar_nginx() {
+    echo "Descargando e instalando NGINX versión $version..."
+
+    wget -q "https://nginx.org/download/nginx-$version.tar.gz" -O "/tmp/nginx-$version.tar.gz"
+    if [[ $? -ne 0 ]]; then
+        echo "Error al descargar NGINX $version."
+        return 1
+    fi
+
+    tar -xzf "/tmp/nginx-$version.tar.gz" -C /tmp
+    cd "/tmp/nginx-$version" || exit 1
+
+    ./configure --prefix=/usr/local/nginx > /dev/null
+    make > /dev/null
+    sudo make install > /dev/null
+
+    # Configurar puerto sin preguntar (usa la variable global $puerto)
+    sudo sed -i "s/listen       80;/listen       $puerto;/" /usr/local/nginx/conf/nginx.conf
+
+    # Iniciar NGINX
+    /usr/local/nginx/sbin/nginx
+
+    echo "NGINX $version instalado y configurado en el puerto $puerto."
+}
+
 
 # Función para obtener versiones de Apache HTTP Server
 obtener_versiones_apache() {
