@@ -344,6 +344,23 @@ version=""
 puerto=""
 versions=()
 
+instalar_dependencias() {
+    echo "Instalando dependencias necesarias para Apache, Tomcat y Nginx en Ubuntu..."
+
+    sudo apt-get update -y
+
+    # Dependencias generales para compilación y descarga
+    sudo apt-get install -y build-essential wget curl tar
+
+    # Dependencias específicas para Apache
+    sudo apt-get install -y libapr1-dev libaprutil1-dev libpcre3 libpcre3-dev
+
+    # Dependencias específicas para Nginx (compilación desde fuente)
+    sudo apt-get install -y libssl-dev zlib1g-dev
+
+    echo "Todas las dependencias fueron instaladas correctamente."
+}
+
 # Función para seleccionar el servicio
 seleccionar_servicio() {
     echo "Seleccione el servicio que desea instalar:"
@@ -421,10 +438,21 @@ preguntar_puerto() {
     done
 }
 
+comando_existente() {
+    command -v "$1" > /dev/null 2>&1
+}
+
 proceso_instalacion() {
     if [[ -z "$servicio" || -z "$version" || -z "$puerto" ]]; then
         echo "Debe seleccionar el servicio, la versión y el puerto antes de proceder con la instalación."
         return
+    fi
+
+    # Validar dependencias
+    if ! comando_existente "gcc" || ! comando_existente "make" || ! comando_existente "wget" || ! comando_existente "curl"; then
+        echo "Faltan dependencias esenciales para la instalación."
+        echo "Por favor, ejecute la opción 0 del menú (Instalar dependencias necesarias) antes de continuar."
+        return 1
     fi
 
     echo "Iniciando instalación silenciosa de $servicio versión $version en el puerto $puerto..."
@@ -448,7 +476,6 @@ proceso_instalacion() {
     echo "Instalación completada para $servicio versión $version en el puerto $puerto."
 }
 
-
 instalar_apache() {
     echo "Descargando e instalando Apache versión $version..."
 
@@ -461,11 +488,26 @@ instalar_apache() {
     tar -xzf "/tmp/httpd-$version.tar.gz" -C /tmp
     cd "/tmp/httpd-$version" || exit 1
 
+    echo "Compilando Apache (esto puede tardar)..."
     ./configure --prefix=/usr/local/apache2 --enable-so > /dev/null
-    make > /dev/null
-    sudo make install > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar ./configure para Apache."
+        return 1
+    fi
 
-    # Configurar puerto sin preguntar (usa la variable global $puerto)
+    make > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar make para Apache."
+        return 1
+    fi
+
+    sudo make install > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar make install para Apache."
+        return 1
+    fi
+
+    # Configurar puerto sin preguntar
     sudo sed -i "s/Listen 80/Listen $puerto/" /usr/local/apache2/conf/httpd.conf
 
     # Iniciar Apache
@@ -483,6 +525,12 @@ instalar_tomcat() {
         return 1
     fi
 
+    # Limpiar instalación previa (si existe)
+    if [[ -d "/opt/tomcat" ]]; then
+        echo "Eliminando instalación previa de Tomcat..."
+        sudo rm -rf /opt/tomcat
+    fi
+
     sudo mkdir -p /opt/tomcat
     sudo tar -xzf "/tmp/tomcat-$version.tar.gz" -C /opt/tomcat --strip-components=1
 
@@ -498,18 +546,41 @@ instalar_tomcat() {
 instalar_nginx() {
     echo "Descargando e instalando NGINX versión $version..."
 
+    # Descargar el paquete
     wget -q "https://nginx.org/download/nginx-$version.tar.gz" -O "/tmp/nginx-$version.tar.gz"
     if [[ $? -ne 0 ]]; then
         echo "Error al descargar NGINX $version."
         return 1
     fi
 
+    # Limpiar instalación previa (si existe)
+    if [[ -d "/usr/local/nginx" ]]; then
+        echo "Eliminando instalación previa de NGINX..."
+        sudo rm -rf /usr/local/nginx
+    fi
+
+    # Descomprimir y compilar
     tar -xzf "/tmp/nginx-$version.tar.gz" -C /tmp
     cd "/tmp/nginx-$version" || exit 1
 
+    echo "Compilando NGINX (esto puede tardar)..."
     ./configure --prefix=/usr/local/nginx > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar ./configure para NGINX."
+        return 1
+    fi
+
     make > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar make para NGINX."
+        return 1
+    fi
+
     sudo make install > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar make install para NGINX."
+        return 1
+    fi
 
     # Configurar puerto sin preguntar (usa la variable global $puerto)
     sudo sed -i "s/listen       80;/listen       $puerto;/" /usr/local/nginx/conf/nginx.conf
@@ -519,7 +590,6 @@ instalar_nginx() {
 
     echo "NGINX $version instalado y configurado en el puerto $puerto."
 }
-
 
 # Función para obtener versiones de Apache HTTP Server
 obtener_versiones_apache() {

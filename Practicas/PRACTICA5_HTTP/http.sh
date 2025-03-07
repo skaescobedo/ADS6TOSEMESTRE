@@ -12,6 +12,7 @@ mostrar_menu() {
     echo "=================================="
     echo "        Instalador HTTP           "
     echo "=================================="
+    echo "0. Instalar dependencias necesarias"
     echo "1. Seleccionar Servicio"
     echo "2. Seleccionar Versión"
     echo "3. Configurar Puerto"
@@ -29,9 +30,22 @@ while true; do
     read -p "Seleccione una opción: " opcion_menu
 
     case $opcion_menu in
-        1) seleccionar_servicio ;;
-        2) seleccionar_version ;;
-        3) preguntar_puerto ;;
+        0) 
+            instalar_dependencias
+            read -p "Presione Enter para continuar..."
+            ;;
+        1) 
+            seleccionar_servicio
+            read -p "Presione Enter para continuar..."
+            ;;
+        2) 
+            seleccionar_version
+            read -p "Presione Enter para continuar..."
+            ;;
+        3) 
+            preguntar_puerto
+            read -p "Presione Enter para continuar..."
+            ;;
         4) 
             # Mostrar resumen antes de proceder
             echo "=================================="
@@ -48,6 +62,7 @@ while true; do
             else
                 proceso_instalacion
             fi
+            read -p "Presione Enter para continuar..."
             ;;
         5) 
             echo "Saliendo..."
@@ -55,6 +70,7 @@ while true; do
             ;;
         *) 
             echo "Opción no válida. Intente de nuevo."
+            read -p "Presione Enter para continuar..."
             ;;
     esac
 done
