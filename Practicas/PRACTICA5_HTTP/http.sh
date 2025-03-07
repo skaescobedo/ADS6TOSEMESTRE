@@ -31,7 +31,23 @@ while true; do
         1) seleccionar_servicio ;;
         2) seleccionar_version ;;
         3) preguntar_puerto ;;
-        4) proceso_instalacion ;;
+        4) 
+            # Mostrar resumen antes de proceder
+            echo "=================================="
+            echo "      Resumen de la instalación   "
+            echo "=================================="
+            echo "Servicio seleccionado: $servicio"
+            echo "Versión seleccionada: $version"
+            echo "Puerto configurado: $puerto"
+            echo "=================================="
+
+            read -p "¿Desea proceder con la instalación? (s/n): " confirmacion
+            if [[ "$confirmacion" != "s" ]]; then
+                echo "Instalación cancelada."
+            else
+                proceso_instalacion
+            fi
+            ;;
         5) 
             echo "Saliendo..."
             exit 0
