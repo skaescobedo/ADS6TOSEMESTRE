@@ -8,6 +8,7 @@ source ./librerianueva.sh
 # ========================
 
 mostrar_menu() {
+    clear  # Limpia la pantalla cada vez que se muestra el menú
     echo "=================================="
     echo "        Instalador HTTP           "
     echo "=================================="
