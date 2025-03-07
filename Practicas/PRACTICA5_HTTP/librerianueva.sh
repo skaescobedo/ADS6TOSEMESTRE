@@ -337,3 +337,164 @@ eliminar_usuario() {
 #--------------------------------------------------------------------------------
 #HTTP
 #--------------------------------------------------------------------------------
+
+#!/bin/bash
+
+# Variables globales (compartidas entre las funciones)
+servicio=""
+version=""
+puerto=""
+versions=()
+
+# Función para seleccionar el servicio
+seleccionar_servicio() {
+    echo "Seleccione el servicio que desea instalar:"
+    echo "1.- Apache"
+    echo "2.- Tomcat"
+    echo "3.- Nginx"
+    read -p "Opción: " opcion
+
+    case $opcion in
+        1)
+            servicio="Apache"
+            obtener_versiones_apache
+            ;;
+        2)
+            servicio="Tomcat"
+            obtener_versiones_tomcat
+            ;;
+        3)
+            servicio="Nginx"
+            obtener_versiones_nginx
+            ;;
+        *)
+            echo "Opción no válida. Intente de nuevo."
+            ;;
+    esac
+}
+
+# Función para seleccionar la versión de un servicio ya seleccionado
+seleccionar_version() {
+    if [[ -z "$servicio" ]]; then
+        echo "Debe seleccionar un servicio antes de elegir la versión."
+        return
+    fi
+
+    echo "Seleccione la versión de $servicio:"
+    echo "1.- Versión Estable (LTS): ${versions[0]}"
+    echo "2.- Versión de Desarrollo: ${versions[1]}"
+    read -p "Opción: " opcion
+
+    case $opcion in
+        1)
+            version=${versions[0]}
+            echo "Versión seleccionada: $version"
+            ;;
+        2)
+            version=${versions[1]}
+            echo "Versión seleccionada: $version"
+            ;;
+        *)
+            echo "Opción no válida."
+            ;;
+    esac
+}
+
+# Función para verificar si un puerto está en uso
+verificar_puerto_en_uso() {
+    local puerto=$1
+    if ss -tuln | grep -q ":$puerto\b"; then
+        return 1
+    else
+        return 0
+    fi
+}
+
+# Función para pedir un puerto y asegurarse de que esté libre
+preguntar_puerto() {
+    while true; do
+        read -p "Ingrese el puerto para el servicio: " puerto
+        if verificar_puerto_en_uso "$puerto"; then
+            echo "El puerto $puerto está disponible."
+            break
+        else
+            echo "El puerto $puerto está ocupado. Intente con otro."
+        fi
+    done
+}
+
+# Función que simula la instalación (puedes luego reemplazarla por la real)
+proceso_instalacion() {
+    if [[ -z "$servicio" || -z "$version" || -z "$puerto" ]]; then
+        echo "Debe seleccionar el servicio, la versión y el puerto antes de proceder con la instalación."
+        return
+    fi
+
+    echo "Iniciando instalación de $servicio versión $version en el puerto $puerto."
+    # Aquí es donde luego agregarías las funciones de instalación reales
+}
+
+# Función para obtener versiones de Apache HTTP Server
+obtener_versiones_apache() {
+    echo "Obteniendo versiones de Apache HTTP Server desde https://httpd.apache.org/download.cgi"
+
+    # Descargar HTML de la página
+    html=$(curl -s "https://httpd.apache.org/download.cgi")
+
+    # Buscar versiones en formato httpd-X.Y.Z
+    versions_raw=$(echo "$html" | grep -oP 'httpd-\d+\.\d+\.\d+' | sed 's/httpd-//')
+
+    # Extraer la versión LTS (2.4.x) y la versión de desarrollo (2.5.x o superior si existe)
+    version_lts=$(echo "$versions_raw" | grep '^2\.4' | head -n 1)
+    version_dev=$(echo "$versions_raw" | grep '^2\.5' | head -n 1)
+
+    # Si no encuentra desarrollo (no siempre hay), lo dejamos vacío o avisamos
+    if [[ -z "$version_dev" ]]; then
+        version_dev="No disponible"
+    fi
+
+    versions=("$version_lts" "$version_dev")
+
+    echo "Versión estable (LTS): $version_lts"
+    echo "Versión de desarrollo: $version_dev"
+}
+
+# Función para obtener versiones de Apache Tomcat (focalizado en Tomcat 10 y 11)
+obtener_versiones_tomcat() {
+    echo "Obteniendo versiones de Apache Tomcat desde https://tomcat.apache.org/download-10.cgi"
+
+    # Descargar HTML de la página de Tomcat 10
+    html=$(curl -s "https://tomcat.apache.org/download-10.cgi")
+
+    # Buscar versiones en formato vX.Y.Z
+    versions_raw=$(echo "$html" | grep -oP 'v\d+\.\d+\.\d+' | sed 's/v//')
+
+    # Tomcat 10.1 es LTS (última estable), Tomcat 11 es la de desarrollo
+    version_lts=$(echo "$versions_raw" | head -n 1)
+    version_dev="11.0.1"  # Puedes automatizar esto si Tomcat 11 tiene su propia página
+
+    versions=("$version_lts" "$version_dev")
+
+    echo "Versión estable (LTS): $version_lts"
+    echo "Versión de desarrollo: $version_dev"
+}
+
+# Función para obtener versiones de NGINX
+obtener_versiones_nginx() {
+    echo "Obteniendo versiones de NGINX desde https://nginx.org/en/download.html"
+
+    # Descargar HTML de la página
+    html=$(curl -s "https://nginx.org/en/download.html")
+
+    # Buscar versiones en formato nginx-X.Y.Z
+    versions_raw=($(echo "$html" | grep -oP 'nginx-\d+\.\d+\.\d+' | sed 's/nginx-//'))
+
+    # La primera es la versión de desarrollo (mainline), la segunda es la versión estable (LTS)
+    version_dev="${versions_raw[0]}"
+    version_lts="${versions_raw[1]}"
+
+    versions=("$version_lts" "$version_dev")
+
+    echo "Versión estable (LTS): $version_lts"
+    echo "Versión de desarrollo (mainline): $version_dev"
+}
