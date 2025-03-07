@@ -655,19 +655,44 @@ obtener_versiones_apache() {
     echo "Versión de desarrollo: $version_dev"
 }
 
-# Función para obtener versiones de Apache Tomcat (focalizado en Tomcat 10 y 11)
+# Variables globales para almacenar las URLs dinámicas
+tomcat_url_lts=""
+tomcat_url_dev=""
+
+# ========================
+# Función para obtener las URLs de descarga de Tomcat
+# ========================
+obtener_urls_tomcat() {
+    echo "Obteniendo URLs dinámicas de descarga desde el index de Tomcat..."
+
+    html=$(curl -s "https://tomcat.apache.org/index.html")
+
+    # Buscar todos los enlaces que apunten a páginas de descarga
+    urls=$(echo "$html" | grep -oP 'href="\Khttps://tomcat.apache.org/download-\d+\.cgi(?=")')
+
+    # Normalmente el primero es el de la versión estable (Tomcat 10 o futuro LTS) y el segundo es el dev (Tomcat 11 o futuro dev)
+    tomcat_url_lts=$(echo "$urls" | head -n 1)
+    tomcat_url_dev=$(echo "$urls" | tail -n 1)
+
+    echo "URL de la versión estable (LTS): $tomcat_url_lts"
+    echo "URL de la versión de desarrollo: $tomcat_url_dev"
+}
+
+# ========================
+# Función para obtener las últimas versiones de Tomcat (LTS y Dev)
+# ========================
 obtener_versiones_tomcat() {
-    echo "Obteniendo versiones de Apache Tomcat desde https://tomcat.apache.org/download-10.cgi"
+    obtener_urls_tomcat  # Actualizamos las URLs dinámicamente antes de buscar versiones
 
-    # Descargar HTML de la página de Tomcat 10
-    html=$(curl -s "https://tomcat.apache.org/download-10.cgi")
+    echo "Obteniendo versiones de Apache Tomcat desde las URLs detectadas..."
 
-    # Buscar versiones en formato vX.Y.Z
-    versions_raw=$(echo "$html" | grep -oP 'v\d+\.\d+\.\d+' | sed 's/v//')
+    # Obtener la última versión estable desde la página LTS
+    html_lts=$(curl -s "$tomcat_url_lts")
+    version_lts=$(echo "$html_lts" | grep -oP 'v\d+\.\d+\.\d+' | head -n 1 | sed 's/v//')
 
-    # Tomcat 10.1 es LTS (última estable), Tomcat 11 es la de desarrollo
-    version_lts=$(echo "$versions_raw" | head -n 1)
-    version_dev="11.0.1"  # Puedes automatizar esto si Tomcat 11 tiene su propia página
+    # Obtener la última versión de desarrollo desde la página dev
+    html_dev=$(curl -s "$tomcat_url_dev")
+    version_dev=$(echo "$html_dev" | grep -oP 'v\d+\.\d+\.\d+' | head -n 1 | sed 's/v//')
 
     versions=("$version_lts" "$version_dev")
 
@@ -675,22 +700,21 @@ obtener_versiones_tomcat() {
     echo "Versión de desarrollo: $version_dev"
 }
 
-# Función para obtener versiones de NGINX
+
 obtener_versiones_nginx() {
     echo "Obteniendo versiones de NGINX desde https://nginx.org/en/download.html"
 
-    # Descargar HTML de la página
     html=$(curl -s "https://nginx.org/en/download.html")
 
-    # Buscar versiones en formato nginx-X.Y.Z
-    versions_raw=($(echo "$html" | grep -oP 'nginx-\d+\.\d+\.\d+' | sed 's/nginx-//'))
+    # Extraer la versión Stable
+    version_stable=$(echo "$html" | grep -A1 "Stable version" | grep -oP 'nginx-\d+\.\d+\.\d+' | head -n 1 | sed 's/nginx-//')
 
-    # La primera es la versión de desarrollo (mainline), la segunda es la versión estable (LTS)
-    version_dev="${versions_raw[0]}"
-    version_lts="${versions_raw[1]}"
+    # Extraer la versión Mainline
+    version_mainline=$(echo "$html" | grep -A1 "Mainline version" | grep -oP 'nginx-\d+\.\d+\.\d+' | head -n 1 | sed 's/nginx-//')
 
-    versions=("$version_lts" "$version_dev")
+    # Guardar en el array global versions
+    versions=("$version_stable" "$version_mainline")
 
-    echo "Versión estable (LTS): $version_lts"
-    echo "Versión de desarrollo (mainline): $version_dev"
+    echo "Versión estable (LTS): $version_stable"
+    echo "Versión de desarrollo (Mainline): $version_mainline"
 }
