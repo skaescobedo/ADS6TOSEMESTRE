@@ -706,11 +706,14 @@ obtener_versiones_nginx() {
 
     html=$(curl -s "https://nginx.org/en/download.html")
 
-    # Extraer la versión Stable
-    version_stable=$(echo "$html" | grep -A1 "Stable version" | grep -oP 'nginx-\d+\.\d+\.\d+' | head -n 1 | sed 's/nginx-//')
-
     # Extraer la versión Mainline
-    version_mainline=$(echo "$html" | grep -A1 "Mainline version" | grep -oP 'nginx-\d+\.\d+\.\d+' | head -n 1 | sed 's/nginx-//')
+    version_mainline=$(echo "$html" | grep -A5 "Mainline version" | grep -oP 'nginx-\d+\.\d+\.\d+' | head -n1 | sed 's/nginx-//')
+
+    # Extraer solo el major.minor de Mainline (por ejemplo, 1.27)
+    mainline_major_minor=$(echo "$version_mainline" | cut -d '.' -f1,2)
+
+    # Extraer la versión Stable, pero asegurando que no sea de la misma rama major.minor que la Mainline
+    version_stable=$(echo "$html" | grep -A5 "Stable version" | grep -oP 'nginx-\d+\.\d+\.\d+' | grep -v "${mainline_major_minor}\." | head -n1 | sed 's/nginx-//')
 
     # Guardar en el array global versions
     versions=("$version_stable" "$version_mainline")
