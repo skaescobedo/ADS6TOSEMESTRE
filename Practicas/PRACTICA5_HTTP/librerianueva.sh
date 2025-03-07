@@ -344,21 +344,60 @@ version=""
 puerto=""
 versions=()
 
+paquete_instalado() {
+    dpkg -l | grep -qw "$1"
+}
+
 instalar_dependencias() {
-    echo "Instalando dependencias necesarias para Apache, Tomcat y Nginx en Ubuntu..."
+    echo "Verificando e instalando dependencias necesarias para Apache, Tomcat y Nginx en Ubuntu..."
 
     sudo apt-get update -y
 
-    # Dependencias generales para compilación y descarga
-    sudo apt-get install -y build-essential wget curl tar
+    # Dependencias generales
+    for paquete in build-essential wget curl tar; do
+        if paquete_instalado "$paquete"; then
+            echo "$paquete ya está instalado."
+        else
+            sudo apt-get install -y "$paquete"
+        fi
+    done
 
-    # Dependencias específicas para Apache
-    sudo apt-get install -y libapr1-dev libaprutil1-dev libpcre3 libpcre3-dev
+    # Dependencias específicas de Apache
+    for paquete in libapr1-dev libaprutil1-dev libpcre3 libpcre3-dev; do
+        if paquete_instalado "$paquete"; then
+            echo "$paquete ya está instalado."
+        else
+            sudo apt-get install -y "$paquete"
+        fi
+    done
 
-    # Dependencias específicas para Nginx (compilación desde fuente)
-    sudo apt-get install -y libssl-dev zlib1g-dev
+    # Dependencias específicas de NGINX
+    for paquete in libssl-dev zlib1g-dev; do
+        if paquete_instalado "$paquete"; then
+            echo "$paquete ya está instalado."
+        else
+            sudo apt-get install -y "$paquete"
+        fi
+    done
 
-    echo "Todas las dependencias fueron instaladas correctamente."
+    # Dependencia de Tomcat (Java)
+    if paquete_instalado "default-jdk"; then
+        echo "default-jdk ya está instalado."
+    else
+        sudo apt-get install -y default-jdk
+    fi
+
+    # Configurar JAVA_HOME automáticamente si no está en /etc/environment
+    if ! grep -q "JAVA_HOME" /etc/environment; then
+        java_home_path=$(readlink -f $(which java) | sed "s:/bin/java::")
+        echo "JAVA_HOME=\"$java_home_path\"" | sudo tee -a /etc/environment > /dev/null
+        source /etc/environment
+        echo "JAVA_HOME configurado automáticamente como: $JAVA_HOME"
+    else
+        echo "JAVA_HOME ya está configurado."
+    fi
+
+    echo "Verificación e instalación de dependencias completada."
 }
 
 # Función para seleccionar el servicio
