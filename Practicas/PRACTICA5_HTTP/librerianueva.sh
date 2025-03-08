@@ -564,7 +564,20 @@ instalar_apache() {
 instalar_tomcat() {
     echo "Descargando e instalando Tomcat versión $version..."
 
-    wget -q "https://dlcdn.apache.org/tomcat/tomcat-10/v$version/bin/apache-tomcat-$version.tar.gz" -O "/tmp/tomcat-$version.tar.gz"
+    # Determinar la versión mayor para construir la URL correctamente
+    mayor=$(echo "$version" | cut -d'.' -f1)
+    url="https://dlcdn.apache.org/tomcat/tomcat-$mayor/v$version/bin/apache-tomcat-$version.tar.gz"
+
+    # Verificar que la URL existe antes de descargar
+    echo "Intentando descargar desde: $url"
+    wget --spider "$url"
+    if [[ $? -ne 0 ]]; then
+        echo "Error: No se encontró el archivo en la URL proporcionada."
+        return 1
+    fi
+
+    # Descargar Tomcat
+    wget -q "$url" -O "/tmp/tomcat-$version.tar.gz"
     if [[ $? -ne 0 ]]; then
         echo "Error al descargar Tomcat $version."
         return 1
