@@ -729,33 +729,54 @@ obtener_versiones_nginx() {
 }
 
 verificar_servicios() {
-    echo -e "\nVerificando servicios HTTP instalados...\n"
+    echo -e "\n=================================="
+    echo "   Verificando servicios HTTP    "
+    echo "=================================="
 
-    for servicio in apache2 httpd nginx tomcat; do
-        if command -v $servicio &> /dev/null; then
-            case $servicio in
-                apache2|httpd)
-                    echo "Apache está instalado"
-                    version=$(apachectl -v 2>/dev/null | grep "Server version" | awk '{print $3}')
-                    puerto=$(ss -tlnp | grep -E ':(80|443)' | grep apache | awk '{print $4}' | cut -d':' -f2)
-                    echo "   Versión: $version"
-                    echo "   Puertos: ${puerto:-No encontrado}"
-                    ;;
-                nginx)
-                    echo "Nginx está instalado"
-                    version=$(nginx -v 2>&1 | awk -F/ '{print $2}')
-                    puerto=$(ss -tlnp | grep -E ':(80|443)' | grep nginx | awk '{print $4}' | cut -d':' -f2)
-                    echo "   Versión: $version"
-                    echo "   Puertos: ${puerto:-No encontrado}"
-                    ;;
-                tomcat)
-                    echo "Tomcat está instalado"
-                    version=$(catalina.sh version 2>/dev/null | grep "Server number" | awk '{print $3}')
-                    puerto=$(ss -tlnp | grep -E ':(8080|8443)' | grep java | awk '{print $4}' | cut -d':' -f2)
-                    echo "   Versión: ${version:-No encontrada}"
-                    echo "   Puertos: ${puerto:-No encontrado}"
-                    ;;
-            esac
-        fi
-    done
+    # Verificar Apache
+    if [[ -f "/usr/local/apache2/bin/httpd" || -f "/usr/sbin/apache2" || -f "/usr/sbin/httpd" ]]; then
+        echo "Apache está instalado"
+        apache_version=$(/usr/local/apache2/bin/httpd -v 2>/dev/null | grep "Server version" | awk '{print $3}')
+        [[ -z "$apache_version" ]] && apache_version=$(/usr/sbin/apache2 -v 2>/dev/null | grep "Server version" | awk '{print $3}')
+        [[ -z "$apache_version" ]] && apache_version=$(/usr/sbin/httpd -v 2>/dev/null | grep "Server version" | awk '{print $3}')
+        
+        apache_puertos=$(sudo ss -tlnp | grep -E ':(80|443)' | grep -E 'httpd|apache2' | awk '{print $4}' | cut -d':' -f2 | tr '\n' ', ')
+        [[ -z "$apache_puertos" ]] && apache_puertos="No encontrado"
+        
+        echo "   Versión: ${apache_version:-No encontrada}"
+        echo "   Puertos: ${apache_puertos%, }"
+        echo "----------------------------------"
+    fi
+
+    # Verificar Nginx
+    if [[ -f "/usr/sbin/nginx" || -f "/usr/local/sbin/nginx" ]]; then
+        echo "Nginx está instalado"
+        nginx_version=$(nginx -v 2>&1 | awk -F/ '{print $2}')
+        
+        nginx_puertos=$(sudo ss -tlnp | grep -E ':(80|443)' | grep nginx | awk '{print $4}' | cut -d':' -f2 | tr '\n' ', ')
+        [[ -z "$nginx_puertos" ]] && nginx_puertos="No encontrado"
+        
+        echo "   Versión: ${nginx_version:-No encontrada}"
+        echo "   Puertos: ${nginx_puertos%, }"
+        echo "----------------------------------"
+    fi
+
+    # Verificar Tomcat
+    if [[ -d "/opt/tomcat" || -d "/usr/local/tomcat" ]]; then
+        echo "Tomcat está instalado"
+        tomcat_version=$(/opt/tomcat/bin/version.sh 2>/dev/null | grep "Server number" | awk '{print $3}')
+        [[ -z "$tomcat_version" ]] && tomcat_version=$(/usr/local/tomcat/bin/version.sh 2>/dev/null | grep "Server number" | awk '{print $3}')
+
+        tomcat_puertos=$(sudo ss -tlnp | grep -E ':(8080|8443)' | grep java | awk '{print $4}' | cut -d':' -f2 | tr '\n' ', ')
+        [[ -z "$tomcat_puertos" ]] && tomcat_puertos="No encontrado"
+
+        echo "   Versión: ${tomcat_version:-No encontrada}"
+        echo "   Puertos: ${tomcat_puertos%, }"
+        echo "----------------------------------"
+    fi
+
+    # Si no se encontró ningún servicio
+    if [[ -z "$(ps aux | grep -E 'nginx|httpd|apache2|tomcat|java' | grep -v grep)" ]]; then
+        echo "No se detectaron servicios HTTP en ejecución."
+    fi
 }
