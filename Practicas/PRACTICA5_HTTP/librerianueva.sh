@@ -513,7 +513,13 @@ proceso_instalacion() {
     esac
 
     echo "Instalación completada para $servicio versión $version en el puerto $puerto."
+
+    # Limpiar variables globales
+    unset servicio
+    unset version
+    unset puerto
 }
+
 
 instalar_apache() {
     echo "Descargando e instalando Apache versión $version..."
@@ -720,4 +726,36 @@ obtener_versiones_nginx() {
 
     echo "Versión estable (LTS): $version_stable"
     echo "Versión de desarrollo (Mainline): $version_mainline"
+}
+
+verificar_servicios() {
+    echo -e "\nVerificando servicios HTTP instalados...\n"
+
+    for servicio in apache2 httpd nginx tomcat; do
+        if command -v $servicio &> /dev/null; then
+            case $servicio in
+                apache2|httpd)
+                    echo "Apache está instalado"
+                    version=$(apachectl -v 2>/dev/null | grep "Server version" | awk '{print $3}')
+                    puerto=$(ss -tlnp | grep -E ':(80|443)' | grep apache | awk '{print $4}' | cut -d':' -f2)
+                    echo "   Versión: $version"
+                    echo "   Puertos: ${puerto:-No encontrado}"
+                    ;;
+                nginx)
+                    echo "Nginx está instalado"
+                    version=$(nginx -v 2>&1 | awk -F/ '{print $2}')
+                    puerto=$(ss -tlnp | grep -E ':(80|443)' | grep nginx | awk '{print $4}' | cut -d':' -f2)
+                    echo "   Versión: $version"
+                    echo "   Puertos: ${puerto:-No encontrado}"
+                    ;;
+                tomcat)
+                    echo "Tomcat está instalado"
+                    version=$(catalina.sh version 2>/dev/null | grep "Server number" | awk '{print $3}')
+                    puerto=$(ss -tlnp | grep -E ':(8080|8443)' | grep java | awk '{print $4}' | cut -d':' -f2)
+                    echo "   Versión: ${version:-No encontrada}"
+                    echo "   Puertos: ${puerto:-No encontrado}"
+                    ;;
+            esac
+        fi
+    done
 }

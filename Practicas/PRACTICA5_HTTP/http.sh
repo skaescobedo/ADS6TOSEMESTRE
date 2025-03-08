@@ -17,7 +17,8 @@ mostrar_menu() {
     echo "2. Seleccionar Versión"
     echo "3. Configurar Puerto"
     echo "4. Proceder con la Instalación"
-    echo "5. Salir"
+    echo "5. Verificar servicios instalados"
+    echo "6. Salir"
     echo "=================================="
 }
 
@@ -65,6 +66,10 @@ while true; do
             read -p "Presione Enter para continuar..."
             ;;
         5) 
+            verificar_servicios
+            read -p "Presione Enter para continuar..."
+            ;;
+        6) 
             echo "Saliendo..."
             exit 0
             ;;
