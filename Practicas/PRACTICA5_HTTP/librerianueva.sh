@@ -669,16 +669,30 @@ tomcat_url_dev=""
 # Función para obtener las URLs de descarga de Tomcat
 # ========================
 obtener_urls_tomcat() {
-    echo "Obteniendo URLs dinámicas de descarga desde el index de Tomcat..."
+    echo "Obteniendo URLs dinámicas de descarga desde el índice de Tomcat..."
 
     html=$(curl -s "https://tomcat.apache.org/index.html")
 
-    # Buscar todos los enlaces que apunten a páginas de descarga
-    urls=$(echo "$html" | grep -oP 'href="\Khttps://tomcat.apache.org/download-\d+\.cgi(?=")')
+    # Extraer los enlaces de descarga de las versiones disponibles
+    urls=$(echo "$html" | grep -oP 'https://tomcat.apache.org/download-\d+\.cgi')
 
-    # Normalmente el primero es el de la versión estable (Tomcat 10 o futuro LTS) y el segundo es el dev (Tomcat 11 o futuro dev)
-    tomcat_url_lts=$(echo "$urls" | head -n 1)
-    tomcat_url_dev=$(echo "$urls" | tail -n 1)
+    # Identificar la versión LTS y la versión de desarrollo
+    tomcat_url_lts=""
+    tomcat_url_dev=""
+
+    while read -r url; do
+        version_number=$(echo "$url" | grep -oP '\d+')
+
+        # Consideramos que la versión estable (LTS) es la más baja numerada (actualmente Tomcat 10)
+        if [[ "$version_number" -lt 11 ]]; then
+            tomcat_url_lts="$url"
+        fi
+
+        # La versión de desarrollo (dev) es la más alta numerada (actualmente Tomcat 11)
+        if [[ "$version_number" -eq 11 ]]; then
+            tomcat_url_dev="$url"
+        fi
+    done <<< "$urls"
 
     echo "URL de la versión estable (LTS): $tomcat_url_lts"
     echo "URL de la versión de desarrollo: $tomcat_url_dev"
@@ -740,7 +754,7 @@ verificar_servicios() {
         [[ -z "$apache_version" ]] && apache_version=$(/usr/sbin/apache2 -v 2>/dev/null | grep "Server version" | awk '{print $3}')
         [[ -z "$apache_version" ]] && apache_version=$(/usr/sbin/httpd -v 2>/dev/null | grep "Server version" | awk '{print $3}')
         
-        apache_puertos=$(sudo ss -tlnp | grep -E ':(80|443)' | grep -E 'httpd|apache2' | awk '{print $4}' | cut -d':' -f2 | tr '\n' ', ')
+        apache_puertos=$(sudo ss -tlnp | grep httpd | awk '{print $4}' | grep -oE '[0-9]+$' | tr '\n' ', ')
         [[ -z "$apache_puertos" ]] && apache_puertos="No encontrado"
         
         echo "   Versión: ${apache_version:-No encontrada}"
@@ -749,11 +763,14 @@ verificar_servicios() {
     fi
 
     # Verificar Nginx
-    if [[ -f "/usr/sbin/nginx" || -f "/usr/local/sbin/nginx" ]]; then
+    if [[ -f "/usr/local/nginx/sbin/nginx" || -f "/usr/sbin/nginx" || -f "/usr/local/sbin/nginx" ]]; then
         echo "Nginx está instalado"
-        nginx_version=$(nginx -v 2>&1 | awk -F/ '{print $2}')
+        nginx_version=$(/usr/local/nginx/sbin/nginx -v 2>&1 | awk -F/ '{print $2}')
+        [[ -z "$nginx_version" ]] && nginx_version=$(/usr/sbin/nginx -v 2>&1 | awk -F/ '{print $2}')
+        [[ -z "$nginx_version" ]] && nginx_version=$(/usr/local/sbin/nginx -v 2>&1 | awk -F/ '{print $2}')
         
-        nginx_puertos=$(sudo ss -tlnp | grep -E ':(80|443)' | grep nginx | awk '{print $4}' | cut -d':' -f2 | tr '\n' ', ')
+        # Buscar Nginx en cualquier puerto
+        nginx_puertos=$(sudo ss -tlnp | grep -E 'nginx|/usr/local/nginx/sbin/nginx' | awk '{print $4}' | grep -oE '[0-9]+$' | tr '\n' ', ')
         [[ -z "$nginx_puertos" ]] && nginx_puertos="No encontrado"
         
         echo "   Versión: ${nginx_version:-No encontrada}"
@@ -767,7 +784,7 @@ verificar_servicios() {
         tomcat_version=$(/opt/tomcat/bin/version.sh 2>/dev/null | grep "Server number" | awk '{print $3}')
         [[ -z "$tomcat_version" ]] && tomcat_version=$(/usr/local/tomcat/bin/version.sh 2>/dev/null | grep "Server number" | awk '{print $3}')
 
-        tomcat_puertos=$(sudo ss -tlnp | grep -E ':(8080|8443)' | grep java | awk '{print $4}' | cut -d':' -f2 | tr '\n' ', ')
+        tomcat_puertos=$(sudo ss -tlnp | grep java | awk '{print $4}' | grep -oE '[0-9]+$' | tr '\n' ', ')
         [[ -z "$tomcat_puertos" ]] && tomcat_puertos="No encontrado"
 
         echo "   Versión: ${tomcat_version:-No encontrada}"
