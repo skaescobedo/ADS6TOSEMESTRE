@@ -316,7 +316,13 @@ function Eliminar-Usuario-FTP {
 #HTTP
 #--------------------------------------------------------------------------------
 
-function Seleccionar-Servicio {
+# Variables globales (compartidas entre las funciones)
+$global:servicio = ""   # Almacena el servicio seleccionado (IIS, Apache, Tomcat)
+$global:version = ""    # Almacena la versión seleccionada del servicio
+$global:puerto = ""     # Almacena el puerto en el que se configurará el servicio
+$global:versions = @()  # Almacena un array con las versiones disponibles del servicio seleccionado
+
+function seleccionar_servicio {
     Write-Host "Seleccione el servicio que desea instalar:"
     Write-Host "1.- IIS"
     Write-Host "2.- Apache"
@@ -327,19 +333,188 @@ function Seleccionar-Servicio {
         "1" {
             $global:servicio = "IIS"
             Write-Host "Servicio seleccionado: IIS"
+            obtener_versiones_IIS
         }
         "2" {
             $global:servicio = "Apache"
-            Obtener-Versiones-Apache
+            Write-Host "Servicio seleccionado: Apache"
+            obtener_versiones_apache
         }
         "3" {
             $global:servicio = "Tomcat"
-            Obtener-Versiones-Tomcat
+            Write-Host "Servicio seleccionado: Tomcat"
+            obtener_versiones_tomcat
         }
         default {
             Write-Host "Opción no válida. Intente de nuevo."
-            Seleccionar-Servicio
+            seleccionar_servicio
         }
     }
 }
 
+function obtener_versiones_IIS {
+    # Verificar si IIS ya está instalado
+    $iisVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\InetStp" -ErrorAction SilentlyContinue).MajorVersion
+
+    if ($iisVersion) {
+        Write-Host "IIS ya está instalado. Versión detectada: $iisVersion"
+        $global:version = "IIS $iisVersion.0"
+    } else {
+        Write-Host "IIS no está instalado. Determinando la versión predeterminada..."
+
+        # Obtener la versión del sistema operativo
+        $osBuild = (Get-ComputerInfo).WindowsBuildLabEx
+
+        # Identificar la versión de Windows Server
+        switch -Wildcard ($osBuild) {
+            "*20348*" { $global:version = "IIS 10.0 (Windows Server 2022)" }
+            "*22000*" { $global:version = "IIS 10.0 (Windows Server 2025 / Windows 11)" }
+            "*22621*" { $global:version = "IIS 10.0 (Windows Server 2025 / Windows 11 22H2)" }
+            default   { $global:version = "IIS 10.0 (Versión predeterminada para Windows)" }
+        }
+
+        Write-Host "La versión predeterminada de IIS que se instalará en su sistema es: $global:version"
+    }
+}
+
+function obtener_versiones_apache {
+    Write-Host "Obteniendo versiones de Apache HTTP Server desde https://httpd.apache.org/download.cgi"
+
+    # Descargar el contenido HTML de la página oficial de Apache
+    try {
+        $html = Invoke-WebRequest -Uri "https://httpd.apache.org/download.cgi" -UseBasicParsing
+    } catch {
+        Write-Host "Error al descargar la página de Apache. Verifique su conexión a Internet."
+        return
+    }
+
+    # Convertir el HTML en texto
+    $htmlContent = $html.Content
+
+    # Buscar versiones en formato httpd-X.Y.Z usando expresión regular
+    $versionsRaw = [regex]::Matches($htmlContent, "httpd-(\d+\.\d+\.\d+)") | ForEach-Object { $_.Groups[1].Value }
+
+    # Extraer la versión LTS (2.4.x) y la versión de desarrollo (2.5.x o superior si existe)
+    $versionLTS = ($versionsRaw | Where-Object { $_ -match "^2\.4" } | Select-Object -First 1)
+    $versionDev = ($versionsRaw | Where-Object { $_ -match "^2\.5" } | Select-Object -First 1)
+
+    # Si no hay versión de desarrollo disponible
+    if (-not $versionDev) {
+        $versionDev = "No disponible"
+    }
+
+    # Guardar versiones en la variable global
+    $global:versions = @($versionLTS, $versionDev)
+
+    Write-Host "Versión estable (LTS): $versionLTS"
+    Write-Host "Versión de desarrollo: $versionDev"
+}
+
+function obtener_urls_tomcat {
+    Write-Host "Obteniendo URLs dinámicas de descarga desde el índice de Tomcat..."
+
+    # Intentar obtener el contenido de la página principal de Tomcat
+    try {
+        $html = Invoke-WebRequest -Uri "https://tomcat.apache.org/index.html" -UseBasicParsing
+    } catch {
+        Write-Host "Error al descargar la página de Tomcat. Verifique su conexión a Internet."
+        return
+    }
+
+    # Convertir el contenido HTML en texto
+    $htmlContent = $html.Content
+
+    # Extraer los enlaces de descarga de Tomcat
+    $urls = [regex]::Matches($htmlContent, "https://tomcat.apache.org/download-(\d+)\.cgi") | ForEach-Object { $_.Value }
+
+    # Variables para almacenar las URLs de LTS y Dev
+    $global:tomcat_url_lts = ""
+    $global:tomcat_url_dev = ""
+
+    # Identificar la versión LTS y la versión de desarrollo
+    foreach ($url in $urls) {
+        $versionNumber = [regex]::Match($url, "\d+").Value
+
+        if ([int]$versionNumber -lt 11) {
+            $global:tomcat_url_lts = $url
+        }
+
+        if ([int]$versionNumber -eq 11) {
+            $global:tomcat_url_dev = $url
+        }
+    }
+
+    Write-Host "URL de la versión estable (LTS): $global:tomcat_url_lts"
+    Write-Host "URL de la versión de desarrollo: $global:tomcat_url_dev"
+}
+
+function obtener_versiones_tomcat {
+    obtener_urls_tomcat  # Primero obtenemos las URLs de descarga
+
+    Write-Host "Obteniendo versiones de Apache Tomcat desde las URLs detectadas..."
+
+    # Obtener la versión estable desde la página LTS
+    if ($global:tomcat_url_lts -ne "") {
+        try {
+            $htmlLTS = Invoke-WebRequest -Uri $global:tomcat_url_lts -UseBasicParsing
+            $versionLTS = [regex]::Match($htmlLTS.Content, "v(\d+\.\d+\.\d+)").Groups[1].Value
+        } catch {
+            Write-Host "Error al obtener la versión LTS de Tomcat."
+            $versionLTS = "No disponible"
+        }
+    } else {
+        $versionLTS = "No disponible"
+    }
+
+    # Obtener la versión de desarrollo desde la página Dev
+    if ($global:tomcat_url_dev -ne "") {
+        try {
+            $htmlDev = Invoke-WebRequest -Uri $global:tomcat_url_dev -UseBasicParsing
+            $versionDev = [regex]::Match($htmlDev.Content, "v(\d+\.\d+\.\d+)").Groups[1].Value
+        } catch {
+            Write-Host "Error al obtener la versión de desarrollo de Tomcat."
+            $versionDev = "No disponible"
+        }
+    } else {
+        $versionDev = "No disponible"
+    }
+
+    # Guardar versiones en la variable global
+    $global:versions = @($versionLTS, $versionDev)
+
+    Write-Host "Versión estable (LTS): $versionLTS"
+    Write-Host "Versión de desarrollo: $versionDev"
+}
+
+function seleccionar_version {
+    if (-not $global:servicio) {
+        Write-Host "Debe seleccionar un servicio antes de elegir la versión."
+        return
+    }
+
+    # Si el servicio es IIS, no permitir selección de versión
+    if ($global:servicio -eq "IIS") {
+        Write-Host "IIS no tiene versiones seleccionables. Se instalará la versión predeterminada para Windows Server."
+        $global:version = "IIS (Versión según sistema operativo)"
+        return
+    }
+
+    Write-Host "Seleccione la versión de $global:servicio:"
+    Write-Host "1.- Versión Estable (LTS): $global:versions[0]"
+    Write-Host "2.- Versión de Desarrollo: $global:versions[1]"
+    $opcion = Read-Host "Opción"
+
+    switch ($opcion) {
+        "1" {
+            $global:version = $global:versions[0]
+            Write-Host "Versión seleccionada: $global:version"
+        }
+        "2" {
+            $global:version = $global:versions[1]
+            Write-Host "Versión seleccionada: $global:version"
+        }
+        default {
+            Write-Host "Opción no válida."
+        }
+    }
+}

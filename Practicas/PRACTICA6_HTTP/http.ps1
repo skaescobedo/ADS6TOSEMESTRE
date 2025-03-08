@@ -29,19 +29,19 @@ while ($true) {
 
     switch ($opcion_menu) {
         "0" {
-            Instalar-Dependencias
+            instalar_dependencias
             Read-Host "Presione Enter para continuar..."
         }
         "1" {
-            Seleccionar-Servicio
+           seleccionar_servicio
             Read-Host "Presione Enter para continuar..."
         }
         "2" {
-            Seleccionar-Version
+            seleccionar_version
             Read-Host "Presione Enter para continuar..."
         }
         "3" {
-            Preguntar-Puerto
+            preguntar_puerto
             Read-Host "Presione Enter para continuar..."
         }
         "4" {
@@ -54,14 +54,14 @@ while ($true) {
             Write-Host "=================================="
             $confirmacion = Read-Host "¿Desea proceder con la instalación? (s/n)"
             if ($confirmacion -eq "s") {
-                Instalar-Servicio
+                instalar_servicio
             } else {
                 Write-Host "Instalación cancelada."
             }
             Read-Host "Presione Enter para continuar..."
         }
         "5" {
-            Verificar-Servicios
+            verificar_servicios
             Read-Host "Presione Enter para continuar..."
         }
         "6" {
