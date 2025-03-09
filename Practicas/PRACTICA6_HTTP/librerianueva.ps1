@@ -844,38 +844,55 @@ function instalar_dependencias {
     Write-Host "   Verificando e instalando dependencias...   "
     Write-Host "============================================"
 
-    # Verificar e instalar Visual C++ Redistributable (necesario para Apache)
-    $vc = Get-WmiObject -Query "SELECT * FROM Win32_Product WHERE Name LIKE '%Visual C++%'" | Select-Object Name
-    if ($vc -match "Visual C++ 2017" -or $vc -match "Visual C++ 2022") {
-        Write-Host "Visual C++ Redistributable está instalado."
+    # Verificar e instalar Visual C++ Redistributable
+    Write-Host "`nVerificando Visual C++ Redistributable..."
+
+    $vc = Get-WmiObject -Query "SELECT * FROM Win32_Product WHERE Name LIKE '%Visual C++%'"
+    if ($vc.Name -like "*Visual C++ 2015*" -or $vc.Name -like "*Visual C++ 2017*" -or $vc.Name -like "*Visual C++ 2019*" -or $vc.Name -like "*Visual C++ 2022*") {
+        Write-Host "Visual C++ Redistributable ya está instalado."
     } else {
-        Write-Host "Falta Visual C++ Redistributable. Descargando e instalando..."
+        Write-Host "Falta Visual C++. Descargando e instalando..."
         $vcUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
         $vcInstaller = "$env:TEMP\vc_redist.x64.exe"
         Invoke-WebRequest -Uri $vcUrl -OutFile $vcInstaller
         Start-Process -FilePath $vcInstaller -ArgumentList "/install /quiet /norestart" -NoNewWindow -Wait
-        Write-Host "Visual C++ Redistributable instalado."
+        Write-Host "Visual C++ Redistributable instalado correctamente."
     }
 
-    # Verificar e instalar Java JDK (necesario para Tomcat)
-    $java = java -version 2>&1
-    if ($java -match "version") {
-        Write-Host "Java JDK está instalado."
+    # Verificar e instalar Amazon Corretto JDK 21
+    Write-Host "`nVerificando Amazon Corretto JDK 21..."
+
+    $jdkInstallPath = "C:\Java\Corretto21"
+    if (Test-Path "$jdkInstallPath\bin\java.exe") {
+        Write-Host "Amazon Corretto JDK 21 ya está instalado en: $jdkInstallPath"
     } else {
-        Write-Host "Falta Java JDK. Descargando e instalando OpenJDK 11..."
-        $jdkUrl = "https://github.com/adoptium/temurin11-binaries/releases/latest/download/OpenJDK11U-jdk_x64_windows_hotspot.zip"
-        $jdkZip = "$env:TEMP\OpenJDK11.zip"
-        $jdkPath = "C:\Java\OpenJDK11"
+        Write-Host "Falta JDK 21. Descargando e instalando..."
+        $jdkUrl = "https://corretto.aws/downloads/latest/amazon-corretto-21-x64-windows-jdk.zip"
+        $jdkZipPath = "$env:TEMP\Corretto21.zip"
 
-        # Descargar OpenJDK
-        Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkZip
-        Expand-Archive -Path $jdkZip -DestinationPath "C:\Java" -Force
-        Rename-Item -Path "C:\Java\jdk-11*" -NewName "OpenJDK11"
+        Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkZipPath
 
-        # Configurar JAVA_HOME
-        [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkPath, [System.EnvironmentVariableTarget]::Machine)
-        Write-Host "Java JDK instalado y configurado en JAVA_HOME."
+        # Crear directorio de instalación si no existe
+        if (-Not (Test-Path "C:\Java")) {
+            New-Item -ItemType Directory -Path "C:\Java" | Out-Null
+        }
+
+        # Extraer el archivo ZIP
+        Write-Host "Extrayendo Amazon Corretto JDK 21..."
+        Expand-Archive -Path $jdkZipPath -DestinationPath "C:\Java" -Force
+
+        # Detectar la carpeta real del JDK extraído
+        $jdkExtractedFolder = Get-ChildItem -Path "C:\Java" -Directory | Where-Object { $_.Name -match "^jdk-21" }
+        if ($jdkExtractedFolder) {
+            Rename-Item -Path $jdkExtractedFolder.FullName -NewName "Corretto21" -ErrorAction SilentlyContinue
+        }
+
+        # Configurar JAVA_HOME y agregar al PATH
+        [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkInstallPath, [System.EnvironmentVariableTarget]::Machine)
+        [System.Environment]::SetEnvironmentVariable("Path", "$env:Path;$jdkInstallPath\bin", [System.EnvironmentVariableTarget]::Machine)
+
+        Write-Host "Amazon Corretto JDK 21 instalado y configurado en JAVA_HOME."
     }
 
-    Write-Host "Verificación e instalación de dependencias completada."
+    Write-Host "`nVerificación e instalación de dependencias completada."
 }
