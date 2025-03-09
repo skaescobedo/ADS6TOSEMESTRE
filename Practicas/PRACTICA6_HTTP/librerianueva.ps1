@@ -701,7 +701,7 @@ function verificar_servicios {
     }
 }
 
-ffunction instalar_dependencias {
+function instalar_dependencias {
     Write-Host "`n============================================"
     Write-Host "   Verificando e instalando dependencias...   "
     Write-Host "============================================"
@@ -721,41 +721,43 @@ ffunction instalar_dependencias {
         Write-Host "Visual C++ Redistributable instalado correctamente."
     }
 
-    # Verificar e instalar Adoptium Temurin JDK 21
-    Write-Host "`nVerificando Adoptium Temurin JDK 21..."
+    # Verificar e instalar Amazon Corretto JDK 21
+    Write-Host "`nVerificando Amazon Corretto JDK 21..."
 
-    $jdkInstallPath = "C:\Program Files\Eclipse Adoptium\jdk-21"
-
+    $jdkInstallPath = "C:\Java\Corretto21"
     if (Test-Path "$jdkInstallPath\bin\java.exe") {
-        Write-Host "Adoptium Temurin JDK 21 ya está instalado en: $jdkInstallPath"
+        Write-Host "Amazon Corretto JDK 21 ya está instalado en: $jdkInstallPath"
     } else {
         Write-Host "Falta JDK 21. Descargando e instalando..."
-        $jdkUrl = "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jdk/hotspot/normal/eclipse"
-        $jdkMsiPath = "$env:TEMP\TemurinJDK21.msi"
+        $jdkUrl = "https://corretto.aws/downloads/latest/amazon-corretto-21-x64-windows-jdk.zip"
+        $jdkZipPath = "$env:TEMP\Corretto21.zip"
 
-        Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkMsiPath
+        Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkZipPath
 
-        # Instalar el JDK silenciosamente
-        Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$jdkMsiPath`" /quiet /norestart" -NoNewWindow -Wait
+        # Crear directorio de instalación si no existe
+        if (-Not (Test-Path "C:\Java")) {
+            New-Item -ItemType Directory -Path "C:\Java" | Out-Null
+        }
 
-        # Limpiar archivo MSI
-        Remove-Item -Path $jdkMsiPath -Force
+        # Extraer el archivo ZIP
+        Write-Host "Extrayendo Amazon Corretto JDK 21..."
+        Expand-Archive -Path $jdkZipPath -DestinationPath "C:\Java" -Force
 
-        Write-Host "Adoptium Temurin JDK 21 instalado en: $jdkInstallPath"
+        # Detectar la carpeta real del JDK extraído
+        $jdkExtractedFolder = Get-ChildItem -Path "C:\Java" -Directory | Where-Object { $_.Name -match "^jdk-21" }
+        if ($jdkExtractedFolder) {
+            Rename-Item -Path $jdkExtractedFolder.FullName -NewName "Corretto21" -ErrorAction SilentlyContinue
+        }
+
+        # Configurar JAVA_HOME y agregar al PATH
+        [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkInstallPath, [System.EnvironmentVariableTarget]::Machine)
+        [System.Environment]::SetEnvironmentVariable("Path", "$env:Path;$jdkInstallPath\bin", [System.EnvironmentVariableTarget]::Machine)
+
+        Write-Host "Amazon Corretto JDK 21 instalado y configurado en JAVA_HOME."
     }
-
-    # Configurar JAVA_HOME y agregar al PATH
-    Write-Host "`nConfigurando JAVA_HOME y PATH..."
-
-    [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkInstallPath, [System.EnvironmentVariableTarget]::Machine)
-    [System.Environment]::SetEnvironmentVariable("Path", "$env:Path;$jdkInstallPath\bin", [System.EnvironmentVariableTarget]::Machine)
-    $env:JAVA_HOME = $jdkInstallPath
-
-    Write-Host "JAVA_HOME configurado correctamente: $env:JAVA_HOME"
 
     Write-Host "`nVerificación e instalación de dependencias completada."
 }
-
 
 function instalar_iis {
     try {
