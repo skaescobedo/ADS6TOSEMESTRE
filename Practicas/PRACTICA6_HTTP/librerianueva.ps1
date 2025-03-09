@@ -395,15 +395,15 @@ function obtener_versiones_apache {
     $versionsRaw = [regex]::Matches($htmlContent, "httpd-(\d+\.\d+\.\d+)") | ForEach-Object { $_.Groups[1].Value }
 
     # Extraer la versión LTS (2.4.x) y la versión de desarrollo (2.5.x o superior si existe)
-    $versionLTS = ($versionsRaw | Where-Object { $_ -match "^2\.4" } | Select-Object -First 1)
-    $versionDev = ($versionsRaw | Where-Object { $_ -match "^2\.5" } | Select-Object -First 1)
+    $versionLTS = ($versionsRaw | Where-Object { $_ -match "^2\.4\.\d+$" } | Select-Object -First 1)
+    $versionDev = ($versionsRaw | Where-Object { $_ -match "^2\.5\.\d+$" } | Select-Object -First 1)
 
     # Si no hay versión de desarrollo disponible
     if (-not $versionDev) {
         $versionDev = "No disponible"
     }
 
-    # Guardar versiones en la variable global
+    # Asegurar que el array `$global:versions` tenga solo dos valores correctos
     $global:versions = @($versionLTS, $versionDev)
 
     Write-Host "Versión estable (LTS): $versionLTS"
@@ -499,13 +499,22 @@ function seleccionar_version {
         return
     }
 
-    # Extraer las versiones en variables locales
-    $versionLTS = if ($global:versions.Count -gt 0) { $global:versions[0] } else { "No disponible" }
-    $versionDev = if ($global:versions.Count -gt 1) { $global:versions[1] } else { "No disponible" }
+    # Extraer las versiones en variables locales asegurando que `$global:versions` es un array válido
+    $versionLTS = if ($global:versions.Count -ge 1) { $global:versions[0] } else { "No disponible" }
+    $versionDev = if ($global:versions.Count -ge 2) { $global:versions[1] } else { "No disponible" }
 
     Write-Host "Seleccione la versión de $global:servicio:"
-    Write-Host "1.- Versión Estable (LTS): $versionLTS"
-    Write-Host "2.- Versión de Desarrollo: $versionDev"
+    $global:version = $versionLTS
+    Write-Host "1.- Versión Estable (LTS): $global:version"
+
+    # Si el servicio seleccionado es Apache, deshabilitar la opción 2
+    if ($global:servicio -eq "Apache") {
+        Write-Host "2.- Versión de Desarrollo: No disponible (Apache solo permite LTS)"
+    } else {
+        $global:version = $versionDev
+        Write-Host "2.- Versión de Desarrollo: $global:version"
+    }
+
     $opcion = Read-Host "Opción"
 
     switch ($opcion) {
@@ -514,6 +523,10 @@ function seleccionar_version {
             Write-Host "Versión seleccionada: $global:version"
         }
         "2" {
+            if ($global:servicio -eq "Apache") {
+                Write-Host "Opción no válida. Apache solo permite la versión LTS."
+                return
+            }
             $global:version = $versionDev
             Write-Host "Versión seleccionada: $global:version"
         }
