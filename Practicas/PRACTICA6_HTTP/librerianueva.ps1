@@ -499,18 +499,22 @@ function seleccionar_version {
         return
     }
 
+    # Extraer las versiones en variables locales
+    $versionLTS = if ($global:versions.Count -gt 0) { $global:versions[0] } else { "No disponible" }
+    $versionDev = if ($global:versions.Count -gt 1) { $global:versions[1] } else { "No disponible" }
+
     Write-Host "Seleccione la versión de $global:servicio:"
-    Write-Host "1.- Versión Estable (LTS): $global:versions[0]"
-    Write-Host "2.- Versión de Desarrollo: $global:versions[1]"
+    Write-Host "1.- Versión Estable (LTS): $versionLTS"
+    Write-Host "2.- Versión de Desarrollo: $versionDev"
     $opcion = Read-Host "Opción"
 
     switch ($opcion) {
         "1" {
-            $global:version = $global:versions[0]
+            $global:version = $versionLTS
             Write-Host "Versión seleccionada: $global:version"
         }
         "2" {
-            $global:version = $global:versions[1]
+            $global:version = $versionDev
             Write-Host "Versión seleccionada: $global:version"
         }
         default {
