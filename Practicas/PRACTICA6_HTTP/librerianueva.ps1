@@ -562,3 +562,320 @@ function preguntar_puerto {
         }
     }
 }
+
+function proceso_instalacion {
+    if (-not $global:servicio -or -not $global:version -or -not $global:puerto) {
+        Write-Host "Debe seleccionar el servicio, la versión y el puerto antes de proceder con la instalación."
+        return
+    }
+
+    Write-Host "Iniciando instalación silenciosa de $global:servicio versión $global:version en el puerto $global:puerto..."
+
+    switch ($global:servicio) {
+        "IIS" {
+            instalar_iis
+        }
+        "Apache" {
+            instalar_apache
+        }
+        "Tomcat" {
+            instalar_tomcat
+        }
+        default {
+            Write-Host "Servicio desconocido. No se puede proceder."
+            return
+        }
+    }
+
+    Write-Host "Instalación completada para $global:servicio versión $global:version en el puerto $global:puerto."
+
+    # Limpiar variables globales después de la instalación
+    $global:servicio = $null
+    $global:version = $null
+    $global:puerto = $null
+}
+
+function instalar_apache {
+    Write-Host "Obteniendo la última versión de Apache disponible en Apache Lounge..."
+
+    # Descargar la página de Apache Lounge
+    $paginaApache = Invoke-WebRequest -Uri "https://www.apachelounge.com/download/" -UseBasicParsing
+
+    # Buscar la URL de descarga más reciente (busca archivos con httpd-x.y.z-win64-VS17.zip)
+    $regexApache = "httpd-(\d+\.\d+\.\d+)-win64-VS17.zip"
+    $ultimaVersion = ($paginaApache.Links | Where-Object { $_.href -match $regexApache } | Select-Object -First 1).href
+
+    if (-not $ultimaVersion) {
+        Write-Host "No se pudo encontrar la versión más reciente de Apache en Apache Lounge. Verifique la página manualmente."
+        return
+    }
+
+    # Construir la URL de descarga
+    $apacheDownloadURL = "https://www.apachelounge.com/download/" + $ultimaVersion
+    $global:version = $ultimaVersion -replace "httpd-|win64-VS17.zip", ""  # Extraer solo el número de versión
+
+    Write-Host "Última versión detectada: Apache $global:version"
+    Write-Host "Descargando Apache desde: $apacheDownloadURL"
+
+    # Definir directorios de instalación
+    $apacheZipPath = "$env:TEMP\httpd-$global:version.zip"
+    $apacheExtractPath = "C:\Apache24"
+
+    # Descargar Apache
+    Invoke-WebRequest -Uri $apacheDownloadURL -OutFile $apacheZipPath
+
+    if (-not (Test-Path $apacheZipPath)) {
+        Write-Host "Error al descargar Apache. Verifique la URL y su conexión a Internet."
+        return
+    }
+
+    # Extraer el archivo ZIP
+    Write-Host "Extrayendo Apache en $apacheExtractPath..."
+    Expand-Archive -Path $apacheZipPath -DestinationPath C:\ -Force
+
+    if (-not (Test-Path $apacheExtractPath)) {
+        Write-Host "Error al extraer Apache. Verifique los permisos de administrador."
+        return
+    }
+
+    # Modificar el puerto en httpd.conf
+    $httpdConf = "$apacheExtractPath\conf\httpd.conf"
+    if (Test-Path $httpdConf) {
+        (Get-Content $httpdConf) -replace "Listen 80", "Listen $global:puerto" | Set-Content $httpdConf
+        Write-Host "Puerto configurado en httpd.conf: $global:puerto"
+    } else {
+        Write-Host "No se encontró httpd.conf. La configuración del puerto no se realizó."
+    }
+
+    # Registrar Apache como servicio en Windows
+    Write-Host "Registrando Apache como servicio en Windows..."
+    Start-Process -FilePath "$apacheExtractPath\bin\httpd.exe" -ArgumentList "-k install" -NoNewWindow -Wait
+
+    # Iniciar el servicio de Apache
+    Write-Host "Iniciando el servicio Apache..."
+    Start-Service -Name "Apache2.4"
+
+    Write-Host "Apache $global:version instalado y configurado en el puerto $global:puerto."
+}
+
+function instalar_tomcat {
+    Write-Host "Obteniendo la última versión de Tomcat disponible..."
+
+    # Descargar la página de Tomcat para obtener la última versión estable
+    $paginaTomcat = Invoke-WebRequest -Uri "https://tomcat.apache.org/download-10.cgi" -UseBasicParsing
+
+    # Buscar la última versión disponible de Tomcat 10 (cambiar a otra versión si es necesario)
+    $regexTomcat = "apache-tomcat-(\d+\.\d+\.\d+).zip"
+    $ultimaVersion = ($paginaTomcat.Links | Where-Object { $_.href -match $regexTomcat } | Select-Object -First 1).href
+
+    if (-not $ultimaVersion) {
+        Write-Host "No se pudo encontrar la versión más reciente de Tomcat en la página oficial. Verifique manualmente."
+        return
+    }
+
+    # Construir la URL de descarga
+    $tomcatDownloadURL = "https://downloads.apache.org/tomcat/tomcat-10/v" + ($ultimaVersion -replace "apache-tomcat-|.zip", "") + "/bin/" + $ultimaVersion
+    $global:version = $ultimaVersion -replace "apache-tomcat-|.zip", ""
+
+    Write-Host "Última versión detectada: Tomcat $global:version"
+    Write-Host "Descargando Tomcat desde: $tomcatDownloadURL"
+
+    # Definir rutas de instalación
+    $tomcatZipPath = "$env:TEMP\apache-tomcat-$global:version.zip"
+    $tomcatExtractPath = "C:\Tomcat"
+
+    # Descargar Tomcat
+    Invoke-WebRequest -Uri $tomcatDownloadURL -OutFile $tomcatZipPath
+
+    if (-not (Test-Path $tomcatZipPath)) {
+        Write-Host "Error al descargar Tomcat. Verifique la URL y su conexión a Internet."
+        return
+    }
+
+    # Extraer el archivo ZIP
+    Write-Host "Extrayendo Tomcat en $tomcatExtractPath..."
+    Expand-Archive -Path $tomcatZipPath -DestinationPath C:\ -Force
+    Rename-Item -Path "C:\apache-tomcat-$global:version" -NewName "C:\Tomcat"
+
+    if (-not (Test-Path $tomcatExtractPath)) {
+        Write-Host "Error al extraer Tomcat. Verifique los permisos de administrador."
+        return
+    }
+
+    # Modificar el puerto en server.xml
+    $serverXml = "$tomcatExtractPath\conf\server.xml"
+    if (Test-Path $serverXml) {
+        (Get-Content $serverXml) -replace 'Connector port="8080"', "Connector port=`"$global:puerto`"" | Set-Content $serverXml
+        Write-Host "Puerto configurado en server.xml: $global:puerto"
+    } else {
+        Write-Host "No se encontró server.xml. La configuración del puerto no se realizó."
+    }
+
+    # Registrar Tomcat como servicio en Windows
+    Write-Host "Registrando Tomcat como servicio en Windows..."
+    Start-Process -FilePath "$tomcatExtractPath\bin\service.bat" -ArgumentList "install" -NoNewWindow -Wait
+
+    # Iniciar el servicio de Tomcat
+    Write-Host "Iniciando el servicio Tomcat..."
+    Start-Service -Name "Tomcat10"
+
+    Write-Host "Tomcat $global:version instalado y configurado en el puerto $global:puerto."
+}
+
+function instalar_iis {
+    Write-Host "Instalando IIS en Windows..."
+
+    # Verificar si IIS ya está instalado
+    $iisStatus = Get-WindowsFeature -Name Web-Server
+    if ($iisStatus.Installed) {
+        Write-Host "IIS ya está instalado en el sistema."
+    } else {
+        # Instalar IIS
+        Write-Host "Habilitando IIS, por favor espere..."
+        Install-WindowsFeature -Name Web-Server -IncludeManagementTools
+
+        # Verificar si la instalación fue exitosa
+        $iisStatus = Get-WindowsFeature -Name Web-Server
+        if ($iisStatus.Installed) {
+            Write-Host "IIS se instaló correctamente."
+        } else {
+            Write-Host "Hubo un error al instalar IIS."
+            return
+        }
+    }
+
+    # Configurar el puerto en el que IIS escuchará
+    $global:puerto = if ($global:puerto) { $global:puerto } else { 80 }  # Si el usuario no seleccionó un puerto, usar 80
+    Write-Host "Configurando IIS para que escuche en el puerto $global:puerto..."
+
+    # Modificar la configuración de IIS para cambiar el puerto del sitio por defecto
+    Import-Module WebAdministration
+    Set-ItemProperty 'IIS:\Sites\Default Web Site' -Name bindings -Value @{protocol="http";bindingInformation="*:$global:puerto:"}
+
+    # Reiniciar IIS para aplicar cambios
+    Write-Host "Reiniciando IIS..."
+    Restart-Service W3SVC
+
+    Write-Host "IIS ha sido instalado y configurado en el puerto $global:puerto."
+}
+
+function verificar_servicios {
+    Write-Host "`n=================================="
+    Write-Host "   Verificando servicios HTTP    "
+    Write-Host "=================================="
+
+    # Verificar Apache
+    $apacheServicio = Get-Service -Name "Apache2.4" -ErrorAction SilentlyContinue
+    if ($apacheServicio) {
+        Write-Host "Apache está instalado y su estado es: $($apacheServicio.Status)"
+
+        # Obtener versión de Apache
+        $apacheVersion = & "C:\Apache24\bin\httpd.exe" -v 2>$null | Select-String "Server version"
+        if ($apacheVersion) {
+            $apacheVersion = $apacheVersion -replace "Server version: Apache/", ""
+        } else {
+            $apacheVersion = "No encontrada"
+        }
+
+        # Obtener puerto de Apache desde httpd.conf
+        $apacheConfig = Get-Content "C:\Apache24\conf\httpd.conf" | Select-String "Listen "
+        $apachePuerto = ($apacheConfig -split "Listen ")[-1] -replace "\D", ""
+        if (-not $apachePuerto) { $apachePuerto = "No encontrado" }
+
+        Write-Host "   Versión: $apacheVersion"
+        Write-Host "   Puertos: $apachePuerto"
+        Write-Host "----------------------------------"
+    }
+
+    # Verificar IIS
+    $iisStatus = Get-WindowsFeature -Name Web-Server
+    if ($iisStatus.Installed) {
+        Write-Host "IIS está instalado y ejecutándose."
+
+        # Obtener versión de IIS
+        $iisVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\InetStp").VersionString
+        if (-not $iisVersion) { $iisVersion = "No encontrada" }
+
+        # Obtener puerto de IIS
+        Import-Module WebAdministration
+        $iisPuerto = (Get-ItemProperty "IIS:\Sites\Default Web Site").bindings.Collection | ForEach-Object { $_.bindingInformation }
+        $iisPuerto = ($iisPuerto -split ':')[-2]
+        if (-not $iisPuerto) { $iisPuerto = "No encontrado" }
+
+        Write-Host "   Versión: $iisVersion"
+        Write-Host "   Puertos: $iisPuerto"
+        Write-Host "----------------------------------"
+    }
+
+    # Verificar Tomcat
+    $tomcatServicio = Get-Service -Name "Tomcat10" -ErrorAction SilentlyContinue
+    if ($tomcatServicio) {
+        Write-Host "Tomcat está instalado y su estado es: $($tomcatServicio.Status)"
+
+        # Obtener versión de Tomcat desde catalina.jar
+        $tomcatVersionFile = "C:\Tomcat\RELEASE-NOTES"
+        if (Test-Path $tomcatVersionFile) {
+            $tomcatVersion = (Select-String -Path $tomcatVersionFile -Pattern "Apache Tomcat Version") -replace "Apache Tomcat Version ", ""
+        } else {
+            $tomcatVersion = "No encontrada"
+        }
+
+        # Obtener puerto de Tomcat desde server.xml
+        $serverXml = "C:\Tomcat\conf\server.xml"
+        if (Test-Path $serverXml) {
+            $tomcatPuerto = (Select-String -Path $serverXml -Pattern 'Connector port="(\d+)"') -replace 'Connector port="', '' -replace '"', ''
+        } else {
+            $tomcatPuerto = "No encontrado"
+        }
+
+        Write-Host "   Versión: $tomcatVersion"
+        Write-Host "   Puertos: $tomcatPuerto"
+        Write-Host "----------------------------------"
+    }
+
+    # Si no se encontró ningún servicio
+    if (-not $apacheServicio -and -not $iisStatus.Installed -and -not $tomcatServicio) {
+        Write-Host "No se detectaron servicios HTTP en ejecución."
+    }
+}
+
+function instalar_dependencias {
+    Write-Host "`n============================================"
+    Write-Host "   Verificando e instalando dependencias...   "
+    Write-Host "============================================"
+
+    # Verificar e instalar Visual C++ Redistributable (necesario para Apache)
+    $vc = Get-WmiObject -Query "SELECT * FROM Win32_Product WHERE Name LIKE '%Visual C++%'" | Select-Object Name
+    if ($vc -match "Visual C++ 2017" -or $vc -match "Visual C++ 2022") {
+        Write-Host "Visual C++ Redistributable está instalado."
+    } else {
+        Write-Host "Falta Visual C++ Redistributable. Descargando e instalando..."
+        $vcUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+        $vcInstaller = "$env:TEMP\vc_redist.x64.exe"
+        Invoke-WebRequest -Uri $vcUrl -OutFile $vcInstaller
+        Start-Process -FilePath $vcInstaller -ArgumentList "/install /quiet /norestart" -NoNewWindow -Wait
+        Write-Host "Visual C++ Redistributable instalado."
+    }
+
+    # Verificar e instalar Java JDK (necesario para Tomcat)
+    $java = java -version 2>&1
+    if ($java -match "version") {
+        Write-Host "Java JDK está instalado."
+    } else {
+        Write-Host "Falta Java JDK. Descargando e instalando OpenJDK 11..."
+        $jdkUrl = "https://github.com/adoptium/temurin11-binaries/releases/latest/download/OpenJDK11U-jdk_x64_windows_hotspot.zip"
+        $jdkZip = "$env:TEMP\OpenJDK11.zip"
+        $jdkPath = "C:\Java\OpenJDK11"
+
+        # Descargar OpenJDK
+        Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkZip
+        Expand-Archive -Path $jdkZip -DestinationPath "C:\Java" -Force
+        Rename-Item -Path "C:\Java\jdk-11*" -NewName "OpenJDK11"
+
+        # Configurar JAVA_HOME
+        [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkPath, [System.EnvironmentVariableTarget]::Machine)
+        Write-Host "Java JDK instalado y configurado en JAVA_HOME."
+    }
+
+    Write-Host "Verificación e instalación de dependencias completada."
+}

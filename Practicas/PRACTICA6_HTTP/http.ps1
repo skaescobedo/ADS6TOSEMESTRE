@@ -54,7 +54,7 @@ while ($true) {
             Write-Host "=================================="
             $confirmacion = Read-Host "¿Desea proceder con la instalación? (s/n)"
             if ($confirmacion -eq "s") {
-                instalar_servicio
+                proceso_instalacion
             } else {
                 Write-Host "Instalación cancelada."
             }
