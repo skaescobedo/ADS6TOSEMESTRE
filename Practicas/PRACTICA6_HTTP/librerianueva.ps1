@@ -701,7 +701,7 @@ function verificar_servicios {
     }
 }
 
-function instalar_dependencias {
+ffunction instalar_dependencias {
     Write-Host "`n============================================"
     Write-Host "   Verificando e instalando dependencias...   "
     Write-Host "============================================"
@@ -721,43 +721,41 @@ function instalar_dependencias {
         Write-Host "Visual C++ Redistributable instalado correctamente."
     }
 
-    # Verificar e instalar Amazon Corretto JDK 21
-    Write-Host "`nVerificando Amazon Corretto JDK 21..."
+    # Verificar e instalar Adoptium Temurin JDK 21
+    Write-Host "`nVerificando Adoptium Temurin JDK 21..."
 
-    $jdkInstallPath = "C:\Java\Corretto21"
+    $jdkInstallPath = "C:\Program Files\Eclipse Adoptium\jdk-21"
+
     if (Test-Path "$jdkInstallPath\bin\java.exe") {
-        Write-Host "Amazon Corretto JDK 21 ya está instalado en: $jdkInstallPath"
+        Write-Host "Adoptium Temurin JDK 21 ya está instalado en: $jdkInstallPath"
     } else {
         Write-Host "Falta JDK 21. Descargando e instalando..."
-        $jdkUrl = "https://corretto.aws/downloads/latest/amazon-corretto-21-x64-windows-jdk.zip"
-        $jdkZipPath = "$env:TEMP\Corretto21.zip"
+        $jdkUrl = "https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jdk/hotspot/normal/eclipse"
+        $jdkMsiPath = "$env:TEMP\TemurinJDK21.msi"
 
-        Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkZipPath
+        Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkMsiPath
 
-        # Crear directorio de instalación si no existe
-        if (-Not (Test-Path "C:\Java")) {
-            New-Item -ItemType Directory -Path "C:\Java" | Out-Null
-        }
+        # Instalar el JDK silenciosamente
+        Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$jdkMsiPath`" /quiet /norestart" -NoNewWindow -Wait
 
-        # Extraer el archivo ZIP
-        Write-Host "Extrayendo Amazon Corretto JDK 21..."
-        Expand-Archive -Path $jdkZipPath -DestinationPath "C:\Java" -Force
+        # Limpiar archivo MSI
+        Remove-Item -Path $jdkMsiPath -Force
 
-        # Detectar la carpeta real del JDK extraído
-        $jdkExtractedFolder = Get-ChildItem -Path "C:\Java" -Directory | Where-Object { $_.Name -match "^jdk-21" }
-        if ($jdkExtractedFolder) {
-            Rename-Item -Path $jdkExtractedFolder.FullName -NewName "Corretto21" -ErrorAction SilentlyContinue
-        }
-
-        # Configurar JAVA_HOME y agregar al PATH
-        [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkInstallPath, [System.EnvironmentVariableTarget]::Machine)
-        [System.Environment]::SetEnvironmentVariable("Path", "$env:Path;$jdkInstallPath\bin", [System.EnvironmentVariableTarget]::Machine)
-
-        Write-Host "Amazon Corretto JDK 21 instalado y configurado en JAVA_HOME."
+        Write-Host "Adoptium Temurin JDK 21 instalado en: $jdkInstallPath"
     }
+
+    # Configurar JAVA_HOME y agregar al PATH
+    Write-Host "`nConfigurando JAVA_HOME y PATH..."
+
+    [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkInstallPath, [System.EnvironmentVariableTarget]::Machine)
+    [System.Environment]::SetEnvironmentVariable("Path", "$env:Path;$jdkInstallPath\bin", [System.EnvironmentVariableTarget]::Machine)
+    $env:JAVA_HOME = $jdkInstallPath
+
+    Write-Host "JAVA_HOME configurado correctamente: $env:JAVA_HOME"
 
     Write-Host "`nVerificación e instalación de dependencias completada."
 }
+
 
 function instalar_iis {
     try {
@@ -885,7 +883,10 @@ function instalar_tomcat {
 
     # Definir URLs y rutas
     $tomcatVersion = $global:version
-    $url = "https://dlcdn.apache.org/tomcat/tomcat-${tomcatVersion.Split('.')[0]}/v$tomcatVersion/bin/apache-tomcat-$tomcatVersion-windows-x64.zip"
+    Write-Host "Versión completa de Tomcat seleccionada: $tomcatVersion"
+    $majorVersion = ($tomcatVersion -split "\.")[0]  # Obtiene solo la primera parte antes del primer punto
+    Write-Host "Versión mayor extraída: $majorVersion"
+    $url = "https://dlcdn.apache.org/tomcat/tomcat-${majorVersion}/v$tomcatVersion/bin/apache-tomcat-$tomcatVersion-windows-x64.zip"
     $destinoZip = "$env:USERPROFILE\Downloads\tomcat-$tomcatVersion.zip"
     $extraerdestino = "C:\Tomcat"
 
@@ -900,32 +901,41 @@ function instalar_tomcat {
 
         # Extraer Tomcat en C:\Tomcat
         Write-Host "Extrayendo archivos de Tomcat..."
-        Expand-Archive -Path $destinoZip -DestinationPath "C:\" -Force
-        Write-Host "Tomcat extraído en $extraerdestino"
+        Expand-Archive -Path $destinoZip -DestinationPath "C:\Tomcat" -Force
         Remove-Item -Path $destinoZip -Force
 
-        # Configurar el puerto en server.xml
-        $configFile = Join-Path $extraerdestino "conf\server.xml"
-        if (Test-Path $configFile) {
-            (Get-Content $configFile) -replace 'Connector port="8080"', "Connector port=`"$global:puerto`"" | Set-Content $configFile
-            Write-Host "Configuración de Tomcat actualizada para usar el puerto $global:puerto"
-        } else {
+        # Detectar si los archivos están dentro de una subcarpeta
+        $subcarpeta = Get-ChildItem -Path "C:\Tomcat" | Where-Object { $_.PSIsContainer -and $_.Name -match "apache-tomcat-" }
+
+        if ($subcarpeta) {
+            Write-Host "Moviendo archivos desde $($subcarpeta.FullName) a C:\Tomcat..."
+            Move-Item -Path "$($subcarpeta.FullName)\*" -Destination "C:\Tomcat" -Force
+            Remove-Item -Path $subcarpeta.FullName -Recurse -Force
+        }
+
+        # Verificar que server.xml exista en la ubicación correcta
+        $configFile = "C:\Tomcat\conf\server.xml"
+        if (-not (Test-Path $configFile)) {
             Write-Host "Error: No se encontró el archivo de configuración en $configFile"
             return
         }
 
+        # Configurar el puerto en server.xml
+        (Get-Content $configFile) -replace 'Connector port="8080"', "Connector port=`"$global:puerto`"" | Set-Content $configFile
+        Write-Host "Configuración de Tomcat actualizada para usar el puerto $global:puerto"
+
         # Registrar Tomcat como servicio
-        $tomcatService = Join-Path $extraerdestino "bin\service.bat"
+        $tomcatService = "C:\Tomcat\bin\service.bat"
         if (Test-Path $tomcatService) {
             Write-Host "Registrando Tomcat como servicio..."
             Start-Process -FilePath $tomcatService -ArgumentList 'install' -NoNewWindow -Wait
-            Start-Service -Name "Tomcat$($tomcatVersion.Split('.')[0])"
+            Start-Service -Name "Tomcat$majorVersion"
             Write-Host "Tomcat instalado y ejecutándose en el puerto $global:puerto"
 
             # Habilitar el puerto en el firewall al final de la instalación
             habilitar_puerto_firewall
         } else {
-            Write-Host "Error: No se encontró el archivo service.bat en $extraerdestino\bin"
+            Write-Host "Error: No se encontró el archivo service.bat en C:\Tomcat\bin"
         }
     } catch {
         Write-Host "Error durante la instalación de Tomcat: $_"
