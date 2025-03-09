@@ -491,6 +491,10 @@ function seleccionar_version {
         Write-Host "Debe seleccionar un servicio antes de elegir la versión."
         return
     }
+        # Mostrar el servicio antes de la selección de versión
+    Write-Host "`n========================================"
+    Write-Host "Seleccionando versión para: $global:servicio"
+    Write-Host "========================================"
 
     # Si el servicio es IIS, no permitir selección de versión
     if ($global:servicio -eq "IIS") {
@@ -503,18 +507,10 @@ function seleccionar_version {
     $versionLTS = if ($global:versions.Count -ge 1) { $global:versions[0] } else { "No disponible" }
     $versionDev = if ($global:versions.Count -ge 2) { $global:versions[1] } else { "No disponible" }
 
-    Write-Host "Seleccione la versión de $global:servicio:"
     $global:version = $versionLTS
     Write-Host "1.- Versión Estable (LTS): $global:version"
-
-    # Si el servicio seleccionado es Apache, deshabilitar la opción 2
-    if ($global:servicio -eq "Apache") {
-        Write-Host "2.- Versión de Desarrollo: No disponible (Apache solo permite LTS)"
-    } else {
-        $global:version = $versionDev
-        Write-Host "2.- Versión de Desarrollo: $global:version"
-    }
-
+    $global:version = $versionDev
+    Write-Host "2.- Versión de Desarrollo: $global:version"
     $opcion = Read-Host "Opción"
 
     switch ($opcion) {
@@ -523,15 +519,46 @@ function seleccionar_version {
             Write-Host "Versión seleccionada: $global:version"
         }
         "2" {
-            if ($global:servicio -eq "Apache") {
-                Write-Host "Opción no válida. Apache solo permite la versión LTS."
-                return
-            }
             $global:version = $versionDev
             Write-Host "Versión seleccionada: $global:version"
         }
         default {
             Write-Host "Opción no válida."
+        }
+    }
+}
+
+function verificar_puerto_en_uso {
+    param (
+        [int]$puerto
+    )
+
+    # Usar netstat para verificar si el puerto está en uso
+    $ocupado = netstat -an | Select-String ":$puerto " | Where-Object { $_ -match "LISTENING" }
+
+    if ($ocupado) {
+        return $true  # Puerto en uso
+    } else {
+        return $false # Puerto disponible
+    }
+}
+
+function preguntar_puerto {
+    while ($true) {
+        $puerto = Read-Host "Ingrese el puerto para el servicio"
+
+        # Validar que la entrada sea un número
+        if ($puerto -match "^\d+$") {
+            $puerto = [int]$puerto  # Convertir a número
+            if (-not (verificar_puerto_en_uso -puerto $puerto)) {
+                Write-Host "El puerto $puerto está disponible."
+                $global:puerto = $puerto
+                break
+            } else {
+                Write-Host "El puerto $puerto está ocupado. Intente con otro."
+            }
+        } else {
+            Write-Host "Entrada inválida. Ingrese un número de puerto válido."
         }
     }
 }
