@@ -598,8 +598,17 @@ function proceso_instalacion {
 function instalar_apache {
     Write-Host "Obteniendo la última versión de Apache disponible en Apache Lounge..."
 
-    # Descargar la página de Apache Lounge
-    $paginaApache = Invoke-WebRequest -Uri "https://www.apachelounge.com/download/" -UseBasicParsing
+    # Obtener la URL correcta de Apache Lounge
+    $apacheUrl = "https://www.apachelounge.com/download/"
+    $redirectedUrl = (Invoke-WebRequest -Uri $apacheUrl -MaximumRedirection 0 -ErrorAction SilentlyContinue).Headers.Location
+
+    if ($redirectedUrl) {
+        Write-Host "Nueva URL encontrada: $redirectedUrl"
+        $paginaApache = Invoke-WebRequest -Uri $redirectedUrl -UseBasicParsing
+    } else {
+        Write-Host "No se pudo obtener la URL redirigida, revisa la página manualmente."
+        return
+    }
 
     # Buscar la URL de descarga más reciente (busca archivos con httpd-x.y.z-win64-VS17.zip)
     $regexApache = "httpd-(\d+\.\d+\.\d+)-win64-VS17.zip"
@@ -629,6 +638,12 @@ function instalar_apache {
         return
     }
 
+    # Eliminar instalación previa si existe
+    if (Test-Path $apacheExtractPath) {
+        Write-Host "Eliminando instalación previa de Apache..."
+        Remove-Item -Recurse -Force $apacheExtractPath
+    }
+
     # Extraer el archivo ZIP
     Write-Host "Extrayendo Apache en $apacheExtractPath..."
     Expand-Archive -Path $apacheZipPath -DestinationPath C:\ -Force
@@ -647,9 +662,14 @@ function instalar_apache {
         Write-Host "No se encontró httpd.conf. La configuración del puerto no se realizó."
     }
 
-    # Registrar Apache como servicio en Windows
-    Write-Host "Registrando Apache como servicio en Windows..."
-    Start-Process -FilePath "$apacheExtractPath\bin\httpd.exe" -ArgumentList "-k install" -NoNewWindow -Wait
+    # Registrar Apache como servicio en Windows si no está registrado
+    $service = Get-Service -Name "Apache2.4" -ErrorAction SilentlyContinue
+    if (-not $service) {
+        Write-Host "Registrando Apache como servicio en Windows..."
+        Start-Process -FilePath "$apacheExtractPath\bin\httpd.exe" -ArgumentList "-k install" -NoNewWindow -Wait
+    } else {
+        Write-Host "El servicio Apache2.4 ya está registrado."
+    }
 
     # Iniciar el servicio de Apache
     Write-Host "Iniciando el servicio Apache..."
@@ -657,6 +677,7 @@ function instalar_apache {
 
     Write-Host "Apache $global:version instalado y configurado en el puerto $global:puerto."
 }
+
 
 function instalar_tomcat {
     Write-Host "Obteniendo la última versión de Tomcat disponible..."
