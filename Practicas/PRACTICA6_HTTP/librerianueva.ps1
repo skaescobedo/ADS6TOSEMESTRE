@@ -503,6 +503,12 @@ function seleccionar_version {
         return
     }
 
+    if ($global:servicio -eq "Apache") {
+        Write-Host "Apache solo cuenta con version stable. Se instalará la version 2.4.63"
+        $global:version = "2.4.63"
+        return
+    }
+
     # Extraer las versiones en variables locales asegurando que `$global:versions` es un array válido
     $versionLTS = if ($global:versions.Count -ge 1) { $global:versions[0] } else { "No disponible" }
     $versionDev = if ($global:versions.Count -ge 2) { $global:versions[1] } else { "No disponible" }
@@ -510,6 +516,7 @@ function seleccionar_version {
     $global:version = $versionLTS
     Write-Host "1.- Versión Estable (LTS): $global:version"
     $global:version = $versionDev
+
     Write-Host "2.- Versión de Desarrollo: $global:version"
     $opcion = Read-Host "Opción"
 
@@ -562,6 +569,24 @@ function preguntar_puerto {
         }
     }
 }
+
+function habilitar_puerto_firewall {
+    if ($global:puerto) {
+        # Verifica si ya existe una regla para el puerto
+        $reglaExistente = Get-NetFirewallRule | Where-Object { $_.DisplayName -eq "Puerto $global:puerto" }
+        
+        if ($reglaExistente) {
+            Write-Host "El puerto $global:puerto ya tiene una regla de firewall activa."
+        } else {
+            # Crear una nueva regla en el firewall
+            New-NetFirewallRule -DisplayName "Puerto $global:puerto" -Direction Inbound -Protocol TCP -LocalPort $global:puerto -Action Allow | Out-Null
+            Write-Host "Se ha habilitado el puerto $global:puerto en el firewall."
+        }
+    } else {
+        Write-Host "No hay un puerto definido en la variable global `$global:puerto`."
+    }
+}
+
 
 function proceso_instalacion {
     if (-not $global:servicio -or -not $global:version -or -not $global:puerto) {
@@ -732,4 +757,177 @@ function instalar_dependencias {
     }
 
     Write-Host "`nVerificación e instalación de dependencias completada."
+}
+
+function instalar_iis {
+    try {
+        Write-Host "Instalando IIS y todas sus características..."
+        Install-WindowsFeature -Name Web-Server -IncludeAllSubFeature -ErrorAction Stop
+        Set-Service -Name W3SVC -StartupType Automatic
+
+        Write-Host "IIS instalado correctamente."
+        
+        # Llamar automáticamente a la configuración después de la instalación
+        configurar_iis
+    } catch {
+        Write-Host "Error durante la instalación de IIS: $_"
+    }
+}
+
+function configurar_iis {
+    if (-not $global:puerto) {
+        Write-Host "Error: No se ha definido un puerto válido. Ejecute 'preguntar_puerto' antes de configurar IIS."
+        return
+    }
+
+    try {
+        Write-Host "Configurando IIS en el puerto $global:puerto..."
+
+        # Eliminar la vinculación previa (si existe)
+        $bindingExistente = Get-WebBinding -Name "Default Web Site" | Where-Object { $_.bindingInformation -match "^\*:\d+:" }
+        if ($bindingExistente) {
+            Remove-WebBinding -Name "Default Web Site" -BindingInformation $bindingExistente.bindingInformation
+            Write-Host "Vinculación anterior eliminada."
+        }
+
+        # Crear nueva vinculación con el puerto seleccionado
+        New-WebBinding -Name "Default Web Site" -Protocol "http" -BindingInformation "*:$global:puerto:"
+        Write-Host "Vinculación establecida en el puerto $global:puerto."
+
+        # Reiniciar IIS
+        Restart-Service W3SVC
+        iisreset
+
+        Write-Host "Configuración de IIS completada exitosamente."
+
+        # Habilitar el puerto en el firewall
+        habilitar_puerto_firewall
+    } catch {
+        Write-Host "Error durante la configuración de IIS: $_"
+    }
+}
+
+function instalar_apache {
+    # Verificar que la versión de Apache está definida
+    if (-not $global:version) {
+        Write-Host "Error: No se ha seleccionado una versión de Apache. Ejecute 'seleccionar_version' antes de instalar Apache."
+        return
+    }
+
+    # Verificar que el puerto está definido
+    if (-not $global:puerto) {
+        Write-Host "Error: No se ha definido un puerto válido. Ejecute 'preguntar_puerto' antes de instalar Apache."
+        return
+    }
+
+    # Definir ruta de descarga con la versión seleccionada
+    $url = "https://www.apachelounge.com/download/VS17/binaries/httpd-$global:version-250207-win64-VS17.zip"
+    $destinoZip = "$env:USERPROFILE\Downloads\apache-$global:version.zip"
+    $extraerdestino = "C:\Apache24"
+
+    try {
+        Write-Host "Iniciando instalación de Apache HTTP Server versión $global:version..."
+
+        # Descargar Apache
+        Write-Host "Descargando Apache desde: $url"
+        $agente = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        Invoke-WebRequest -Uri $url -OutFile $destinoZip -MaximumRedirection 10 -UserAgent $agente -UseBasicParsing
+        Write-Host "Apache descargado en: $destinoZip"
+
+        # Extraer Apache en C:\Apache24
+        Write-Host "Extrayendo archivos de Apache..."
+        Expand-Archive -Path $destinoZip -DestinationPath "C:\" -Force
+        Write-Host "Apache extraído en $extraerdestino"
+        Remove-Item -Path $destinoZip -Force
+
+        # Configurar el puerto en httpd.conf
+        $configFile = Join-Path $extraerdestino "conf\httpd.conf"
+        if (Test-Path $configFile) {
+            (Get-Content $configFile) -replace "Listen 80", "Listen $global:puerto" | Set-Content $configFile
+            Write-Host "Configuración actualizada para escuchar en el puerto $global:puerto"
+        } else {
+            Write-Host "Error: No se encontró el archivo de configuración en $configFile"
+            return
+        }
+
+        # Buscar el ejecutable de Apache
+        $apacheExe = Get-ChildItem -Path $extraerdestino -Recurse -Filter httpd.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($apacheExe) {
+            $exeApache = $apacheExe.FullName
+            Write-Host "Instalando Apache como servicio..."
+            Start-Process -FilePath $exeApache -ArgumentList '-k', 'install', '-n', 'Apache24' -NoNewWindow -Wait
+            Write-Host "Iniciando servicio Apache..."
+            Start-Service -Name "Apache24"
+            Write-Host "Apache instalado y ejecutándose en el puerto $global:puerto"
+
+            # Habilitar el puerto en el firewall al final de la instalación
+            habilitar_puerto_firewall
+        } else {
+            Write-Host "Error: No se encontró el ejecutable httpd.exe en $extraerdestino"
+        }
+    } catch {
+        Write-Host "Error durante la instalación de Apache: $_"
+    }
+}
+
+function instalar_tomcat {
+    # Verificar que la versión de Tomcat está definida
+    if (-not $global:version) {
+        Write-Host "Error: No se ha seleccionado una versión de Tomcat. Ejecute 'seleccionar_version' antes de instalar Tomcat."
+        return
+    }
+
+    # Verificar que el puerto está definido
+    if (-not $global:puerto) {
+        Write-Host "Error: No se ha definido un puerto válido. Ejecute 'preguntar_puerto' antes de instalar Tomcat."
+        return
+    }
+
+    # Definir URLs y rutas
+    $tomcatVersion = $global:version
+    $url = "https://dlcdn.apache.org/tomcat/tomcat-${tomcatVersion.Split('.')[0]}/v$tomcatVersion/bin/apache-tomcat-$tomcatVersion-windows-x64.zip"
+    $destinoZip = "$env:USERPROFILE\Downloads\tomcat-$tomcatVersion.zip"
+    $extraerdestino = "C:\Tomcat"
+
+    try {
+        Write-Host "Iniciando instalación de Apache Tomcat versión $tomcatVersion..."
+
+        # Descargar Tomcat
+        Write-Host "Descargando Tomcat desde: $url"
+        $agente = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        Invoke-WebRequest -Uri $url -OutFile $destinoZip -MaximumRedirection 10 -UserAgent $agente -UseBasicParsing
+        Write-Host "Tomcat descargado en: $destinoZip"
+
+        # Extraer Tomcat en C:\Tomcat
+        Write-Host "Extrayendo archivos de Tomcat..."
+        Expand-Archive -Path $destinoZip -DestinationPath "C:\" -Force
+        Write-Host "Tomcat extraído en $extraerdestino"
+        Remove-Item -Path $destinoZip -Force
+
+        # Configurar el puerto en server.xml
+        $configFile = Join-Path $extraerdestino "conf\server.xml"
+        if (Test-Path $configFile) {
+            (Get-Content $configFile) -replace 'Connector port="8080"', "Connector port=`"$global:puerto`"" | Set-Content $configFile
+            Write-Host "Configuración de Tomcat actualizada para usar el puerto $global:puerto"
+        } else {
+            Write-Host "Error: No se encontró el archivo de configuración en $configFile"
+            return
+        }
+
+        # Registrar Tomcat como servicio
+        $tomcatService = Join-Path $extraerdestino "bin\service.bat"
+        if (Test-Path $tomcatService) {
+            Write-Host "Registrando Tomcat como servicio..."
+            Start-Process -FilePath $tomcatService -ArgumentList 'install' -NoNewWindow -Wait
+            Start-Service -Name "Tomcat$($tomcatVersion.Split('.')[0])"
+            Write-Host "Tomcat instalado y ejecutándose en el puerto $global:puerto"
+
+            # Habilitar el puerto en el firewall al final de la instalación
+            habilitar_puerto_firewall
+        } else {
+            Write-Host "Error: No se encontró el archivo service.bat en $extraerdestino\bin"
+        }
+    } catch {
+        Write-Host "Error durante la instalación de Tomcat: $_"
+    }
 }
