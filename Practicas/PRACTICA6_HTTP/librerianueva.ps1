@@ -709,8 +709,11 @@ function instalar_dependencias {
     # Verificar e instalar Visual C++ Redistributable
     Write-Host "`nVerificando Visual C++ Redistributable..."
 
-    $vc = Get-WmiObject -Query "SELECT * FROM Win32_Product WHERE Name LIKE '%Visual C++%'"
-    if ($vc.Name -like "*Visual C++ 2015*" -or $vc.Name -like "*Visual C++ 2017*" -or $vc.Name -like "*Visual C++ 2019*" -or $vc.Name -like "*Visual C++ 2022*") {
+    $vcInstalled = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" | 
+                   Get-ItemProperty | 
+                   Where-Object { $_.DisplayName -match "Visual C\+\+ (2015|2017|2019|2022) Redistributable" }
+
+    if ($vcInstalled) {
         Write-Host "Visual C++ Redistributable ya está instalado."
     } else {
         Write-Host "Falta Visual C++. Descargando e instalando..."
@@ -724,8 +727,12 @@ function instalar_dependencias {
     # Verificar e instalar Amazon Corretto JDK 21
     Write-Host "`nVerificando Amazon Corretto JDK 21..."
 
-    $jdkInstallPath = "C:\Java\Corretto21"
-    if (Test-Path "$jdkInstallPath\bin\java.exe") {
+    $jdkBasePath = "C:\Java"
+
+    # Buscar la carpeta correcta del JDK (detecta la versión instalada automáticamente)
+    $jdkInstallPath = Get-ChildItem -Path $jdkBasePath -Directory | Where-Object { $_.Name -match "^jdk21.*" } | Select-Object -ExpandProperty FullName -First 1
+
+    if ($jdkInstallPath -and (Test-Path "$jdkInstallPath\bin\java.exe")) {
         Write-Host "Amazon Corretto JDK 21 ya está instalado en: $jdkInstallPath"
     } else {
         Write-Host "Falta JDK 21. Descargando e instalando..."
@@ -735,25 +742,51 @@ function instalar_dependencias {
         Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkZipPath
 
         # Crear directorio de instalación si no existe
-        if (-Not (Test-Path "C:\Java")) {
-            New-Item -ItemType Directory -Path "C:\Java" | Out-Null
+        if (-Not (Test-Path $jdkBasePath)) {
+            New-Item -ItemType Directory -Path $jdkBasePath | Out-Null
         }
 
         # Extraer el archivo ZIP
         Write-Host "Extrayendo Amazon Corretto JDK 21..."
-        Expand-Archive -Path $jdkZipPath -DestinationPath "C:\Java" -Force
+        Expand-Archive -Path $jdkZipPath -DestinationPath $jdkBasePath -Force
+        Remove-Item -Path $jdkZipPath -Force
 
-        # Detectar la carpeta real del JDK extraído
-        $jdkExtractedFolder = Get-ChildItem -Path "C:\Java" -Directory | Where-Object { $_.Name -match "^jdk-21" }
-        if ($jdkExtractedFolder) {
-            Rename-Item -Path $jdkExtractedFolder.FullName -NewName "Corretto21" -ErrorAction SilentlyContinue
+        # Detectar la carpeta real del JDK instalada
+        $jdkInstallPath = Get-ChildItem -Path $jdkBasePath -Directory | Where-Object { $_.Name -match "^jdk21.*" } | Select-Object -ExpandProperty FullName -First 1
+
+        if (-not $jdkInstallPath) {
+            Write-Host "Error: No se encontró la carpeta del JDK después de la instalación."
+            return
         }
 
-        # Configurar JAVA_HOME y agregar al PATH
-        [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkInstallPath, [System.EnvironmentVariableTarget]::Machine)
-        [System.Environment]::SetEnvironmentVariable("Path", "$env:Path;$jdkInstallPath\bin", [System.EnvironmentVariableTarget]::Machine)
+        Write-Host "Amazon Corretto JDK 21 instalado en: $jdkInstallPath"
+    }
 
-        Write-Host "Amazon Corretto JDK 21 instalado y configurado en JAVA_HOME."
+    # Configurar JAVA_HOME y agregar al PATH
+    Write-Host "`nConfigurando JAVA_HOME y PATH..."
+
+    [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkInstallPath, [System.EnvironmentVariableTarget]::Machine)
+
+    # Obtener el PATH actual del sistema y asegurarse de que la carpeta bin del JDK está en él
+    $currentPath = [System.Environment]::GetEnvironmentVariable("Path", [System.EnvironmentVariableTarget]::Machine)
+    if ($currentPath -notlike "*$jdkInstallPath\bin*") {
+        $newPath = "$currentPath;$jdkInstallPath\bin"
+        [System.Environment]::SetEnvironmentVariable("Path", $newPath, [System.EnvironmentVariableTarget]::Machine)
+    }
+
+    # Refrescar variables de entorno en la sesión actual
+    $env:JAVA_HOME = $jdkInstallPath
+    $env:Path = "$env:Path;$jdkInstallPath\bin"
+
+    Write-Host "JAVA_HOME configurado correctamente en: $env:JAVA_HOME"
+
+    # Verificar que JAVA_HOME está correctamente configurado
+    Write-Host "`nVerificando configuración de Java..."
+    $javaVersion = & "$jdkInstallPath\bin\java.exe" -version 2>&1
+    if ($javaVersion -match "21\.") {
+        Write-Host "Configuración correcta: `n$javaVersion"
+    } else {
+        Write-Host "Error: JAVA_HOME no está configurado correctamente."
     }
 
     Write-Host "`nVerificación e instalación de dependencias completada."
@@ -871,6 +904,10 @@ function instalar_apache {
 }
 
 function instalar_tomcat {
+    Write-Host "`n============================================"
+    Write-Host "   Instalando Apache Tomcat...   "
+    Write-Host "============================================"
+
     # Verificar que la versión de Tomcat está definida
     if (-not $global:version) {
         Write-Host "Error: No se ha seleccionado una versión de Tomcat. Ejecute 'seleccionar_version' antes de instalar Tomcat."
@@ -883,61 +920,90 @@ function instalar_tomcat {
         return
     }
 
+    # Verificar y configurar JAVA_HOME con la detección automática del JDK instalado
+    $jdkBasePath = "C:\Java"
+    $jdkInstallPath = Get-ChildItem -Path $jdkBasePath -Directory | Where-Object { $_.Name -match "^jdk21.*" } | Select-Object -ExpandProperty FullName -First 1
+
+    if (-not $jdkInstallPath -or -not (Test-Path "$jdkInstallPath\bin\java.exe")) {
+        Write-Host "Error: Amazon Corretto JDK 21 no está instalado correctamente. Ejecute 'instalar_dependencias' primero."
+        return
+    }
+
+    # Configurar JAVA_HOME y agregarlo al Path
+    Write-Host "Configurando JAVA_HOME..."
+    [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkInstallPath, [System.EnvironmentVariableTarget]::Machine)
+    $env:JAVA_HOME = $jdkInstallPath
+
+    # Asegurar que el JDK esté en el Path
+    $currentPath = [System.Environment]::GetEnvironmentVariable("Path", [System.EnvironmentVariableTarget]::Machine)
+    if ($currentPath -notlike "*$jdkInstallPath\bin*") {
+        $newPath = "$currentPath;$jdkInstallPath\bin"
+        [System.Environment]::SetEnvironmentVariable("Path", $newPath, [System.EnvironmentVariableTarget]::Machine)
+    }
+    $env:Path = "$env:Path;$jdkInstallPath\bin"
+
+    Write-Host "JAVA_HOME configurado correctamente en: $env:JAVA_HOME"
+
     # Definir URLs y rutas
     $tomcatVersion = $global:version
     Write-Host "Versión completa de Tomcat seleccionada: $tomcatVersion"
-    $majorVersion = ($tomcatVersion -split "\.")[0]  # Obtiene solo la primera parte antes del primer punto
+    $majorVersion = ($tomcatVersion -split "\.")[0]  # Obtiene solo la versión mayor
     Write-Host "Versión mayor extraída: $majorVersion"
+    
     $url = "https://dlcdn.apache.org/tomcat/tomcat-${majorVersion}/v$tomcatVersion/bin/apache-tomcat-$tomcatVersion-windows-x64.zip"
     $destinoZip = "$env:USERPROFILE\Downloads\tomcat-$tomcatVersion.zip"
-    $extraerdestino = "C:\Tomcat"
+    $extraerDestino = "C:\Tomcat"
 
     try {
-        Write-Host "Iniciando instalación de Apache Tomcat versión $tomcatVersion..."
-
-        # Descargar Tomcat
         Write-Host "Descargando Tomcat desde: $url"
-        $agente = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        Invoke-WebRequest -Uri $url -OutFile $destinoZip -MaximumRedirection 10 -UserAgent $agente -UseBasicParsing
+        Invoke-WebRequest -Uri $url -OutFile $destinoZip -MaximumRedirection 10 -UseBasicParsing
         Write-Host "Tomcat descargado en: $destinoZip"
 
-        # Extraer Tomcat en C:\Tomcat
-        Write-Host "Extrayendo archivos de Tomcat..."
-        Expand-Archive -Path $destinoZip -DestinationPath "C:\Tomcat" -Force
+        # Si la carpeta C:\Tomcat ya existe, la eliminamos
+        if (Test-Path $extraerDestino) {
+            Write-Host "Limpiando instalación anterior de Tomcat..."
+            Remove-Item -Path $extraerDestino -Recurse -Force
+        }
+
+        # Extraer Tomcat
+        Write-Host "Extrayendo archivos de Tomcat en $extraerDestino..."
+        Expand-Archive -Path $destinoZip -DestinationPath "C:\" -Force
         Remove-Item -Path $destinoZip -Force
 
         # Detectar si los archivos están dentro de una subcarpeta
-        $subcarpeta = Get-ChildItem -Path "C:\Tomcat" | Where-Object { $_.PSIsContainer -and $_.Name -match "apache-tomcat-" }
+        $subcarpeta = Get-ChildItem -Path "C:\" | Where-Object { $_.PSIsContainer -and $_.Name -match "apache-tomcat-" }
 
         if ($subcarpeta) {
-            Write-Host "Moviendo archivos desde $($subcarpeta.FullName) a C:\Tomcat..."
-            Move-Item -Path "$($subcarpeta.FullName)\*" -Destination "C:\Tomcat" -Force
-            Remove-Item -Path $subcarpeta.FullName -Recurse -Force
+            Write-Host "Moviendo archivos de $($subcarpeta.FullName) a $extraerDestino..."
+            Rename-Item -Path $subcarpeta.FullName -NewName "Tomcat"
         }
 
         # Verificar que server.xml exista en la ubicación correcta
-        $configFile = "C:\Tomcat\conf\server.xml"
+        $configFile = "$extraerDestino\conf\server.xml"
         if (-not (Test-Path $configFile)) {
             Write-Host "Error: No se encontró el archivo de configuración en $configFile"
             return
         }
 
         # Configurar el puerto en server.xml
+        Write-Host "Configurando Tomcat para el puerto $global:puerto..."
         (Get-Content $configFile) -replace 'Connector port="8080"', "Connector port=`"$global:puerto`"" | Set-Content $configFile
-        Write-Host "Configuración de Tomcat actualizada para usar el puerto $global:puerto"
+        Write-Host "Configuración de Tomcat actualizada con puerto $global:puerto"
 
         # Registrar Tomcat como servicio
-        $tomcatService = "C:\Tomcat\bin\service.bat"
+        $tomcatService = "$extraerDestino\bin\service.bat"
         if (Test-Path $tomcatService) {
             Write-Host "Registrando Tomcat como servicio..."
             Start-Process -FilePath $tomcatService -ArgumentList 'install' -NoNewWindow -Wait
-            Start-Service -Name "Tomcat$majorVersion"
+
+            # Iniciar el servicio de Tomcat
+            Start-Service -Name "Tomcat$majorVersion" -ErrorAction SilentlyContinue
             Write-Host "Tomcat instalado y ejecutándose en el puerto $global:puerto"
 
-            # Habilitar el puerto en el firewall al final de la instalación
+            # Habilitar el puerto en el firewall
             habilitar_puerto_firewall
         } else {
-            Write-Host "Error: No se encontró el archivo service.bat en C:\Tomcat\bin"
+            Write-Host "Error: No se encontró el archivo service.bat en $extraerDestino\bin"
         }
     } catch {
         Write-Host "Error durante la instalación de Tomcat: $_"
