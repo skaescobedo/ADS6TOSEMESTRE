@@ -467,15 +467,22 @@ verificar_puerto_en_uso() {
 # Función para pedir un puerto y asegurarse de que esté libre
 preguntar_puerto() {
     while true; do
-        read -p "Ingrese el puerto para el servicio: " puerto
-        if verificar_puerto_en_uso "$puerto"; then
-            echo "El puerto $puerto está disponible."
-            break
+        read -p "Ingrese el puerto para el servicio (debe estar entre 1 y 65535): " puerto
+
+        # Verificar si la entrada es un número y está dentro del rango válido
+        if [[ "$puerto" =~ ^[0-9]+$ ]] && (( puerto >= 1 && puerto <= 65535 )); then
+            if verificar_puerto_en_uso "$puerto"; then
+                echo "El puerto $puerto está disponible."
+                break
+            else
+                echo "El puerto $puerto está ocupado. Intente con otro."
+            fi
         else
-            echo "El puerto $puerto está ocupado. Intente con otro."
+            echo "Entrada inválida. Ingrese un número de puerto entre 1 y 65535."
         fi
     done
 }
+
 
 # Función para habilitar un puerto en el firewall
 habilitar_puerto_firewall() {
