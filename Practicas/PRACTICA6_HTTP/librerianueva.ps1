@@ -552,17 +552,21 @@ function verificar_puerto_en_uso {
 
 function preguntar_puerto {
     while ($true) {
-        $puerto = Read-Host "Ingrese el puerto para el servicio"
+        $puerto = Read-Host "Ingrese el puerto para el servicio (debe estar entre 1 y 65535)"
 
-        # Validar que la entrada sea un número
+        # Validar que la entrada sea un número dentro del rango permitido
         if ($puerto -match "^\d+$") {
             $puerto = [int]$puerto  # Convertir a número
-            if (-not (verificar_puerto_en_uso -puerto $puerto)) {
-                Write-Host "El puerto $puerto está disponible."
-                $global:puerto = $puerto
-                break
+            if ($puerto -ge 1 -and $puerto -le 65535) {
+                if (-not (verificar_puerto_en_uso -puerto $puerto)) {
+                    Write-Host "El puerto $puerto está disponible."
+                    $global:puerto = $puerto
+                    break
+                } else {
+                    Write-Host "El puerto $puerto está ocupado. Intente con otro."
+                }
             } else {
-                Write-Host "El puerto $puerto está ocupado. Intente con otro."
+                Write-Host "Número fuera de rango. Ingrese un puerto entre 1 y 65535."
             }
         } else {
             Write-Host "Entrada inválida. Ingrese un número de puerto válido."
