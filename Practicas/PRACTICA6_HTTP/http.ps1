@@ -61,10 +61,6 @@ while ($true) {
             Read-Host "Presione Enter para continuar..."
         }
         "5" {
-            verificar_servicios
-            Read-Host "Presione Enter para continuar..."
-        }
-        "6" {
             Write-Host "Saliendo..."
             exit
         }
