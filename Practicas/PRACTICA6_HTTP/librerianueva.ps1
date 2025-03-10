@@ -990,18 +990,37 @@ function instalar_tomcat {
         (Get-Content $configFile) -replace 'Connector port="8080"', "Connector port=`"$global:puerto`"" | Set-Content $configFile
         Write-Host "Configuración de Tomcat actualizada con puerto $global:puerto"
 
-        # Registrar Tomcat como servicio
+        # Registrar Tomcat como servicio correctamente
         $tomcatService = "$extraerDestino\bin\service.bat"
         if (Test-Path $tomcatService) {
             Write-Host "Registrando Tomcat como servicio..."
-            Start-Process -FilePath $tomcatService -ArgumentList 'install' -NoNewWindow -Wait
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$tomcatService`" install" -WorkingDirectory "$extraerDestino\bin" -NoNewWindow -Wait
 
-            # Iniciar el servicio de Tomcat
-            Start-Service -Name "Tomcat$majorVersion" -ErrorAction SilentlyContinue
-            Write-Host "Tomcat instalado y ejecutándose en el puerto $global:puerto"
+            # Verificar que el servicio se instaló
+            $tomcatServiceName = "Tomcat$majorVersion"
+            $serviceExists = Get-Service -Name $tomcatServiceName -ErrorAction SilentlyContinue
 
-            # Habilitar el puerto en el firewall
-            habilitar_puerto_firewall
+            if ($serviceExists) {
+                Write-Host "Servicio $tomcatServiceName instalado correctamente."
+
+                # Iniciar el servicio de Tomcat
+                Write-Host "Iniciando servicio de Tomcat..."
+                Start-Service -Name $tomcatServiceName -ErrorAction SilentlyContinue
+
+                # Esperar unos segundos y verificar si está corriendo
+                Start-Sleep -Seconds 5
+                $serviceStatus = Get-Service -Name $tomcatServiceName
+                if ($serviceStatus.Status -eq "Running") {
+                    Write-Host "Tomcat está corriendo en el puerto $global:puerto."
+                } else {
+                    Write-Host "Error: El servicio $tomcatServiceName no se inició correctamente."
+                }
+
+                # Habilitar el puerto en el firewall
+                habilitar_puerto_firewall
+            } else {
+                Write-Host "Error: No se pudo registrar el servicio de Tomcat."
+            }
         } else {
             Write-Host "Error: No se encontró el archivo service.bat en $extraerDestino\bin"
         }
