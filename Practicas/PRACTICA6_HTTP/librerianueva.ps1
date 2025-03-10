@@ -727,7 +727,7 @@ function instalar_iis {
 }
 
 function configurar_iis {
-    if (-not $global:puerto) {
+    if (-not $global:puerto -or $global:puerto -notmatch '^\d+$') {
         Write-Host "Error: No se ha definido un puerto válido. Ejecute 'preguntar_puerto' antes de configurar IIS."
         return
     }
@@ -735,16 +735,18 @@ function configurar_iis {
     try {
         Write-Host "Configurando IIS en el puerto $global:puerto..."
 
-        # Eliminar la vinculación previa (si existe)
-        $bindingExistente = Get-WebBinding -Name "Default Web Site" | Where-Object { $_.bindingInformation -match "^\*:\d+:" }
-        if ($bindingExistente) {
-            Remove-WebBinding -Name "Default Web Site" -BindingInformation $bindingExistente.bindingInformation
-            Write-Host "Vinculación anterior eliminada."
+        # Obtener y eliminar todas las vinculaciones existentes
+        $bindings = Get-WebBinding -Name "Default Web Site"
+        if ($bindings) {
+            foreach ($binding in $bindings) {
+                Remove-WebBinding -Name "Default Web Site" -IPAddress "*" -Port $binding.bindingInformation.Split(':')[1] -Protocol $binding.protocol
+                Write-Host "Vinculación en el puerto $($binding.bindingInformation.Split(':')[1]) eliminada."
+            }
         }
 
         # Crear nueva vinculación con el puerto seleccionado
-        New-WebBinding -Name "Default Web Site" -Protocol "http" -BindingInformation "*:$global:puerto:"
-        Write-Host "Vinculación establecida en el puerto $global:puerto."
+        New-WebBinding -Name "Default Web Site" -Protocol "http" -IPAddress "*" -Port $global:puerto
+        Write-Host "Nueva vinculación establecida en el puerto $global:puerto."
 
         # Reiniciar IIS
         Restart-Service W3SVC
@@ -758,6 +760,7 @@ function configurar_iis {
         Write-Host "Error durante la configuración de IIS: $_"
     }
 }
+
 
 function instalar_apache {
     # Verificar que la versión de Apache está definida
