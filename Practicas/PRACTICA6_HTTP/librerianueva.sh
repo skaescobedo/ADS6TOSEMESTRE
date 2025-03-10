@@ -477,6 +477,38 @@ preguntar_puerto() {
     done
 }
 
+# Función para habilitar un puerto en el firewall
+habilitar_puerto_firewall() {
+    local puerto=$1
+
+    if [ -z "$puerto" ]; then
+        echo "Error: No se proporcionó un puerto."
+        return 1
+    fi
+
+    # Verificar si el firewall está activo
+    if command -v ufw &> /dev/null; then
+        if sudo ufw status | grep -q "$puerto"; then
+            echo "El puerto $puerto ya está permitido en el firewall (UFW)."
+        else
+            sudo ufw allow "$puerto"/tcp
+            echo "El puerto $puerto ha sido habilitado en el firewall (UFW)."
+        fi
+    elif command -v firewall-cmd &> /dev/null; then
+        if sudo firewall-cmd --list-ports | grep -q "$puerto/tcp"; then
+            echo "El puerto $puerto ya está permitido en el firewall (firewalld)."
+        else
+            sudo firewall-cmd --add-port="$puerto"/tcp --permanent
+            sudo firewall-cmd --reload
+            echo "El puerto $puerto ha sido habilitado en el firewall (firewalld)."
+        fi
+    else
+        echo "No se encontró un gestor de firewall compatible (UFW o firewalld)."
+        return 1
+    fi
+}
+
+
 comando_existente() {
     command -v "$1" > /dev/null 2>&1
 }
@@ -558,6 +590,8 @@ instalar_apache() {
     # Iniciar Apache
     /usr/local/apache2/bin/apachectl start
 
+    habilitar_puerto_firewall "$puerto"
+
     echo "Apache $version instalado y configurado en el puerto $puerto."
 }
 
@@ -597,6 +631,8 @@ instalar_tomcat() {
 
     # Iniciar Tomcat
     /opt/tomcat/bin/startup.sh
+
+    habilitar_puerto_firewall "$puerto"
 
     echo "Tomcat $version instalado y configurado en el puerto $puerto."
 }
@@ -645,6 +681,8 @@ instalar_nginx() {
 
     # Iniciar NGINX
     /usr/local/nginx/sbin/nginx
+
+    habilitar_puerto_firewall "$puerto"
 
     echo "NGINX $version instalado y configurado en el puerto $puerto."
 }
