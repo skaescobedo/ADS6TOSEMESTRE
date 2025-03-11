@@ -550,15 +550,28 @@ function verificar_puerto_en_uso {
     }
 }
 
+function verificar_puerto_restringido {
+    param (
+        [int]$puerto
+    )
+    # Lista de puertos restringidos por servicios comunes o navegadores
+    $puertos_restringidos = @(21, 22, 23, 25, 53, 110, 143, 161, 162, 389, 443, 465, 993, 995, 1433, 1434, 1521, 3306, 3389,
+                              1, 7, 9, 11, 13, 15, 17, 19, 137, 138, 139, 2049, 3128, 6000)
+
+    return $puerto -in $puertos_restringidos
+}
+
 function preguntar_puerto {
     while ($true) {
-        $puerto = Read-Host "Ingrese el puerto para el servicio (debe estar entre 1 y 65535)"
+        $puerto = Read-Host "Ingrese el puerto para el servicio (debe estar entre 1 y 65535, excepto los restringidos)"
 
         # Validar que la entrada sea un número dentro del rango permitido
         if ($puerto -match "^\d+$") {
             $puerto = [int]$puerto  # Convertir a número
             if ($puerto -ge 1 -and $puerto -le 65535) {
-                if (-not (verificar_puerto_en_uso -puerto $puerto)) {
+                if (verificar_puerto_restringido -puerto $puerto) {
+                    Write-Host "El puerto $puerto está restringido por otros servicios. Intente con otro."
+                } elseif (-not (verificar_puerto_en_uso -puerto $puerto)) {
                     Write-Host "El puerto $puerto está disponible."
                     $global:puerto = $puerto
                     break

@@ -454,36 +454,56 @@ seleccionar_version() {
     esac
 }
 
+# Función para verificar si un puerto está en la lista de restringidos
+es_puerto_restringido() {
+    local puerto=$1
+    local puertos_restringidos=(21 22 23 25 53 110 143 161 162 389 443 465 993 995 1433 1434 1521 3306 3389 5900 5901 5902 5903 \
+                                1 7 9 11 13 15 17 19 135 137 138 139 445 2049 3128 6000 5432 27017 50000 1723 500 4500 5060 5061 \
+                                1900 5353 67 68 123 9100)
+
+    for p in "${puertos_restringidos[@]}"; do
+        if [[ "$puerto" -eq "$p" ]]; then
+            return 0  # El puerto está restringido
+        fi
+    done
+    return 1  # El puerto no está en la lista de restringidos
+}
+
 # Función para verificar si un puerto está en uso
 verificar_puerto_en_uso() {
     local puerto=$1
-    if ss -tuln | grep -q ":$puerto\b"; then
-        return 1
+    if ss -tuln 2>/dev/null | grep -q "LISTEN.*:$puerto "; then
+        return 0  # Puerto en uso
     else
-        return 0
+        return 1  # Puerto libre
     fi
 }
 
-# Función para pedir un puerto y asegurarse de que esté libre
+# Función para pedir un puerto y asegurarse de que esté libre y no restringido
 preguntar_puerto() {
     while true; do
         read -p "Ingrese el puerto para el servicio (debe estar entre 1 y 65535): " puerto
 
         # Verificar si la entrada es un número y está dentro del rango válido
         if [[ "$puerto" =~ ^[0-9]+$ ]] && (( puerto >= 1 && puerto <= 65535 )); then
+            # Verificar si el puerto está restringido
+            if es_puerto_restringido "$puerto"; then
+                echo "El puerto $puerto está en la lista de puertos restringidos. Intente con otro."
+                continue
+            fi
+
+            # Verificar si el puerto está en uso
             if verificar_puerto_en_uso "$puerto"; then
+                echo "El puerto $puerto está ocupado. Intente con otro."
+            else
                 echo "El puerto $puerto está disponible."
                 break
-            else
-                echo "El puerto $puerto está ocupado. Intente con otro."
             fi
         else
             echo "Entrada inválida. Ingrese un número de puerto entre 1 y 65535."
         fi
     done
 }
-
-
 # Función para habilitar un puerto en el firewall
 habilitar_puerto_firewall() {
     local puerto=$1
@@ -599,7 +619,51 @@ instalar_apache() {
 
     habilitar_puerto_firewall "$puerto"
 
-    echo "Apache $version instalado y configurado en el puerto $puerto."
+    # Reemplazar el index.html de Apache con el código personalizado
+    cat <<EOF | sudo tee /usr/local/apache2/htdocs/index.html > /dev/null
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PERO QUE DISTINGUIDO PEDRI</title>
+    <style>
+        body {
+            text-align: center;
+            background-color: #004c98;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        h1 {
+            margin-top: 20px;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        marquee {
+            margin-top: 50px;
+        }
+        img {
+            width: 300px; /* Ajusta el tamaño de las imágenes */
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0px 0px 10px rgba(255, 255, 255, 0.5);
+            margin: 0 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>PERO QUE DISTINGUIDO PEDRI</h1>
+    <marquee behavior="scroll" direction="left" scrollamount="10">
+        <img src="https://upload.wikimedia.org/wikipedia/en/4/47/FC_Barcelona_%28crest%29.svg" 
+             alt="Escudo del FC Barcelona">
+        <img src="https://pbs.twimg.com/media/E5ZP9L2X0Ak8gN2.jpg:large" 
+             alt="Imagen del FC Barcelona">
+        <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSbFMCtfPdNYbLQL0fCGC_ntQuypliAFhJmcg&s" 
+             alt="Pedri Distinguido">
+    </marquee>
+</body>
+</html>
+EOF
 }
 
 instalar_tomcat() {
