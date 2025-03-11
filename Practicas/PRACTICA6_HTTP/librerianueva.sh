@@ -457,9 +457,7 @@ seleccionar_version() {
 # Función para verificar si un puerto está en la lista de restringidos
 es_puerto_restringido() {
     local puerto=$1
-    local puertos_restringidos=(21 22 23 25 53 110 143 161 162 389 443 465 993 995 1433 1434 1521 3306 3389 5900 5901 5902 5903 \
-                                1 7 9 11 13 15 17 19 135 137 138 139 445 2049 3128 6000 5432 27017 50000 1723 500 4500 5060 5061 \
-                                1900 5353 67 68 123 9100)
+    local puertos_restringidos=(1 7 9 11 13 15 17 19 20 21 22 23 25 37 42 43 53 69 77 79 87 95 101 102 103 104 109 110 111 113 115 117 118 119 123 135 137 139 143 161 177 179 389 427 443 445 465 512 513 514 515 526 530 531 532 540 548 554 556 563 587 601 636 989 990 993 995 1723 2049 6667)
 
     for p in "${puertos_restringidos[@]}"; do
         if [[ "$puerto" -eq "$p" ]]; then
