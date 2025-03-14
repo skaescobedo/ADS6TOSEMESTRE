@@ -17,11 +17,32 @@ function Crear-Estructura-FTP {
     New-Item -ItemType Directory -Path C:\FTP\LocalUser\Public\general -Force
 }
 
-# Función para crear el sitio FTP
 function Crear-Sitio-FTP {
-    Write-Host "Creando el sitio FTP si no existe..."
-    if (-not (Get-WebSite -Name "FTP")) {
-        New-WebFtpSite -Name "FTP" -Port 21 -PhysicalPath "C:\FTP"
+    param (
+        [string]$habilitarSSL
+    )
+
+    Write-Host "Creando el sitio FTP en IIS..." -ForegroundColor Cyan
+
+    # Definir el nombre del sitio y la ruta
+    $ftpSiteName = "FTP"
+    $ftpRootPath = "C:\FTP"
+
+    # Verificar si el sitio ya existe
+    if (-not (Get-WebSite -Name $ftpSiteName)) {
+        New-WebFtpSite -Name $ftpSiteName -Port 21 -PhysicalPath $ftpRootPath -Force
+        Write-Host "Sitio FTP creado exitosamente en IIS." -ForegroundColor Green
+    } else {
+        Write-Host "El sitio FTP ya existe." -ForegroundColor Yellow
+    }
+
+    # Abrir los puertos necesarios en el firewall
+    New-NetFirewallRule -DisplayName "FTP (21)" -Direction Inbound -Protocol TCP -LocalPort 21 -Action Allow
+    New-NetFirewallRule -DisplayName "FTP Passive Mode (49152-65535)" -Direction Inbound -Protocol TCP -LocalPort 49152-65535 -Action Allow
+
+    # Si el usuario eligió habilitar SSL, configurar TLS
+    if ($habilitarSSL -eq "s") {
+        Configurar-TLS -ftpSiteName $ftpSiteName
     }
 }
 
@@ -162,11 +183,29 @@ function Configurar-Autenticacion-Permisos {
     } -Location "FTP"
 }
 
-# Función para configurar TLS/SSL
 function Configurar-TLS {
-    Set-ItemProperty -Path "IIS:\Sites\FTP" -Name "ftpServer.security.ssl.controlChannelPolicy" -Value 0
-    Set-ItemProperty -Path "IIS:\Sites\FTP" -Name "ftpServer.security.ssl.dataChannelPolicy" -Value 0
+    param (
+        [string]$ftpSiteName
+    )
+
+    Write-Host "Generando certificado SSL auto-firmado..." -ForegroundColor Cyan
+
+    # Crear un certificado auto-firmado
+    $cert = New-SelfSignedCertificate -DnsName "localhost" -CertStoreLocation "Cert:\LocalMachine\My"
+
+    # Obtener el thumbprint del certificado
+    $thumbprint = $cert.Thumbprint
+
+    Write-Host "Certificado generado con Thumbprint: $thumbprint" -ForegroundColor Green
+
+    # Configurar IIS para usar SSL/TLS en FTP
+    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name "ftpServer.security.ssl.controlChannelPolicy" -Value "SslAllow"
+    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name "ftpServer.security.ssl.dataChannelPolicy" -Value "SslAllow"
+    Set-ItemProperty "IIS:\Sites\$ftpSiteName" -Name "ftpServer.security.ssl.serverCertHash" -Value $thumbprint
+
+    Write-Host "SSL/TLS habilitado en el sitio FTP." -ForegroundColor Green
 }
+
 
 # Función para reiniciar el sitio FTP
 function Reiniciar-FTP {
