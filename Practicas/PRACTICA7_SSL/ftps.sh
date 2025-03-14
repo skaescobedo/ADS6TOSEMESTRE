@@ -26,7 +26,7 @@ while true; do
     case $opcion in
         1)
             echo "Instalando dependencias, configurando vsftpd y configurando firewall..."
-            instalar_dependencias
+            instalar_dependencias_ftp
 
             # Preguntar si se desea habilitar SSL antes de configurar vsftpd
             read -p "¿Desea habilitar SSL para FTPS? (s/n): " respuesta_ssl
