@@ -583,30 +583,68 @@ proceso_instalacion() {
         return
     fi
 
-    # Validar dependencias
+    # Validar dependencias antes de instalar
     if ! comando_existente "gcc" || ! comando_existente "make" || ! comando_existente "wget" || ! comando_existente "curl"; then
         echo "Faltan dependencias esenciales para la instalación."
         echo "Por favor, ejecute la opción 0 del menú (Instalar dependencias necesarias) antes de continuar."
         return 1
     fi
 
-    echo "Iniciando instalación silenciosa de $servicio versión $version en el puerto $puerto..."
+    # =========================
+    # FLUJO DE INSTALACIÓN - WEB
+    # =========================
+    if [[ "$origen" == "Web" ]]; then
+        echo "Descargando e instalando $servicio versión $version desde la Web..."
+        
+        echo "Iniciando instalación silenciosa de $servicio versión $version en el puerto $puerto..."
+        case $servicio in
+            "Apache")
+                instalar_apache
+                ;;
+            "Tomcat")
+                instalar_tomcat
+                ;;
+            "Nginx")
+                instalar_nginx
+                ;;
+            *)
+                echo "Servicio desconocido. No se puede proceder."
+                return 1
+                ;;
+        esac
 
-    case $servicio in
-        "Apache")
-            instalar_apache
-            ;;
-        "Tomcat")
-            instalar_tomcat
-            ;;
-        "Nginx")
-            instalar_nginx
-            ;;
-        *)
-            echo "Servicio desconocido. No se puede proceder."
+    # =========================
+    # FLUJO DE INSTALACIÓN - FTP
+    # =========================
+    elif [[ "$origen" == "FTP" ]]; then
+        echo "Iniciando descarga de $servicio versión $version desde el servidor FTP..."
+        
+        if ! descargar_instalador_ftp "$servicio" "$version"; then
+            echo "Error al descargar el instalador desde el FTP. Abortando instalación."
             return 1
-            ;;
-    esac
+        fi
+
+        echo "Procesando instalación desde el archivo descargado..."
+        case $servicio in
+            "Apache")
+                instalar_apache_ftp
+                ;;
+            "Tomcat")
+                instalar_tomcat_ftp
+                ;;
+            "Nginx")
+                instalar_nginx_ftp
+                ;;
+            *)
+                echo "Servicio desconocido. No se puede proceder."
+                return 1
+                ;;
+        esac
+
+    else
+        echo "Debe seleccionar un origen de descarga antes de instalar."
+        return 1
+    fi
 
     echo "Instalación completada para $servicio versión $version en el puerto $puerto."
 
@@ -615,7 +653,6 @@ proceso_instalacion() {
     unset version
     unset puerto
 }
-
 
 instalar_apache() {
     echo "Descargando e instalando Apache versión $version..."
@@ -981,4 +1018,181 @@ seleccionar_origen() {
             seleccionar_origen
             ;;
     esac
+}
+
+descargar_instalador_ftp() {
+    local servicio=$1
+    local version=$2
+    local ftp_host="localhost"
+    local ftp_user="usuarioftp"
+    local ftp_pass="ftp123"
+
+    # Ruta base en el FTP
+    local ftp_base_path="/srv/ftp/http"
+
+    # Determinar la carpeta según el sistema operativo
+    if [[ "$(uname)" == "Linux" ]]; then
+        os_type="linux"
+    else
+        os_type="windows"
+    fi
+
+    local destino="/tmp/${servicio}_${version}.tar.gz"
+    local url_ftp="ftp://$ftp_user:$ftp_pass@$ftp_host${ftp_base_path}/${os_type}/${servicio}/${version}.tar.gz"
+
+    echo "Conectando al servidor FTP para descargar: $url_ftp"
+
+    curl -s -o "$destino" "$url_ftp"
+
+    if [[ -f "$destino" ]]; then
+        echo "Descarga completada exitosamente: $destino"
+        return 0
+    else
+        echo "Error en la descarga desde el FTP."
+        return 1
+    fi
+}
+
+instalar_apache_ftp() {
+    echo "Instalando Apache desde archivo descargado en FTP..."
+    local archivo="/tmp/${servicio}_${version}.tar.gz"
+    local instalacion_dir="/usr/local/apache2"
+
+    if [[ ! -f "$archivo" ]]; then
+        echo "Error: No se encontró el archivo de instalación en $archivo."
+        return 1
+    fi
+
+    echo "Descomprimiendo Apache..."
+    tar -xzf "$archivo" -C /tmp
+    cd "/tmp/httpd-$version" || { echo "Error: No se encontró el directorio extraído."; return 1; }
+
+    echo "Compilando Apache..."
+    ./configure --prefix="$instalacion_dir" --enable-ssl --enable-so
+    make -j$(nproc)
+    sudo make install
+
+    # Configurar el puerto y habilitar SSL
+    echo "Configurando Apache..."
+    sudo sed -i "s/Listen 80/Listen $puerto/" "$instalacion_dir/conf/httpd.conf"
+
+    if [[ "$ssl_activo" == "Sí" ]]; then
+        generar_ssl
+        sudo sed -i "/<\/VirtualHost>/i \
+        SSLEngine on\n\
+        SSLCertificateFile /etc/ssl/apache/server.crt\n\
+        SSLCertificateKeyFile /etc/ssl/apache/server.key" \
+        "$instalacion_dir/conf/extra/httpd-ssl.conf"
+
+        echo "Configuración SSL añadida a Apache."
+    fi
+
+    echo "Iniciando Apache..."
+    "$instalacion_dir/bin/apachectl" start
+
+    habilitar_puerto_firewall "$puerto"
+
+    echo "Apache $version instalado en $instalacion_dir y corriendo en el puerto $puerto con SSL: $ssl_activo"
+}
+
+instalar_tomcat_ftp() {
+    echo "Instalando Tomcat desde archivo descargado en FTP..."
+    local archivo="/tmp/${servicio}_${version}.tar.gz"
+    local instalacion_dir="/opt/tomcat"
+
+    if [[ ! -f "$archivo" ]]; then
+        echo "Error: No se encontró el archivo de instalación en $archivo."
+        return 1
+    fi
+
+    sudo rm -rf "$instalacion_dir"
+    sudo mkdir -p "$instalacion_dir"
+    sudo tar -xzf "$archivo" -C "$instalacion_dir" --strip-components=1
+
+    echo "Configurando Tomcat en el puerto $puerto..."
+    sudo sed -i "s/Connector port=\"8080\"/Connector port=\"$puerto\"/" "$instalacion_dir/conf/server.xml"
+
+    if [[ "$ssl_activo" == "Sí" ]]; then
+        generar_ssl
+        sudo sed -i "/<\/Service>/i \
+        <Connector port=\"8443\" protocol=\"HTTP/1.1\" SSLEnabled=\"true\"\n\
+        maxThreads=\"200\" scheme=\"https\" secure=\"true\"\n\
+        clientAuth=\"false\" sslProtocol=\"TLS\" \n\
+        keystoreFile=\"/etc/ssl/tomcat/server.crt\"\n\
+        keystorePass=\"changeit\" />" "$instalacion_dir/conf/server.xml"
+
+        echo "Configuración SSL añadida a Tomcat."
+    fi
+
+    echo "Iniciando Tomcat..."
+    "$instalacion_dir/bin/startup.sh"
+
+    habilitar_puerto_firewall "$puerto"
+
+    echo "Tomcat $version instalado en $instalacion_dir y corriendo en el puerto $puerto con SSL: $ssl_activo"
+}
+
+instalar_nginx_ftp() {
+    echo "Instalando Nginx desde archivo descargado en FTP..."
+    local archivo="/tmp/${servicio}_${version}.tar.gz"
+    local instalacion_dir="/usr/local/nginx"
+
+    if [[ ! -f "$archivo" ]]; then
+        echo "Error: No se encontró el archivo de instalación en $archivo."
+        return 1
+    fi
+
+    sudo rm -rf "$instalacion_dir"
+    tar -xzf "$archivo" -C /tmp
+    cd "/tmp/nginx-$version" || { echo "Error: No se encontró el directorio extraído."; return 1; }
+
+    echo "Compilando Nginx con soporte SSL..."
+    ./configure --prefix="$instalacion_dir" --with-http_ssl_module
+    make -j$(nproc)
+    sudo make install
+
+    echo "Configurando Nginx en el puerto $puerto..."
+    sudo sed -i "s/listen       80;/listen       $puerto;/" "$instalacion_dir/conf/nginx.conf"
+
+    if [[ "$ssl_activo" == "Sí" ]]; then
+        generar_ssl
+        sudo sed -i "/server {/a \
+        listen 443 ssl;\n\
+        ssl_certificate /etc/ssl/nginx/server.crt;\n\
+        ssl_certificate_key /etc/ssl/nginx/server.key;\n\
+        ssl_protocols TLSv1.2 TLSv1.3;\n\
+        ssl_ciphers HIGH:!aNULL:!MD5;" "$instalacion_dir/conf/nginx.conf"
+
+        echo "Configuración SSL añadida a Nginx."
+    fi
+
+    echo "Iniciando Nginx..."
+    "$instalacion_dir/sbin/nginx"
+
+    habilitar_puerto_firewall "$puerto"
+
+    echo "Nginx $version instalado en $instalacion_dir y corriendo en el puerto $puerto con SSL: $ssl_activo"
+}
+
+generar_ssl() {
+    local ssl_dir="/etc/ssl/$servicio"
+    local cert_file="$ssl_dir/server.crt"
+    local key_file="$ssl_dir/server.key"
+
+    # Crear directorio si no existe
+    sudo mkdir -p "$ssl_dir"
+
+    # Generar certificado auto-firmado
+    echo "Generando certificado SSL para $servicio..."
+    sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout "$key_file" -out "$cert_file" \
+        -subj "/CN=localhost"
+
+    if [[ -f "$cert_file" && -f "$key_file" ]]; then
+        echo "Certificado SSL generado en: $ssl_dir"
+        return 0
+    else
+        echo "Error al generar el certificado SSL."
+        return 1
+    fi
 }
