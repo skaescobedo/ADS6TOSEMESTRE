@@ -356,7 +356,7 @@ configurar_ssl_vsftpd() {
 ssl_enable=YES
 rsa_cert_file=/etc/ssl/certs/vsftpd.crt
 rsa_private_key_file=/etc/ssl/private/vsftpd.key
-allow_anon_ssl=NO
+allow_anon_ssl=YES
 force_local_logins_ssl=YES
 force_local_data_ssl=YES
 ssl_tlsv1=YES
@@ -438,8 +438,11 @@ instalar_dependencias_https() {
     echo "Verificación e instalación de dependencias completada."
 }
 
+
 # Función para seleccionar el servicio
 seleccionar_servicio() {
+    local modo=$1  # Recibe el parámetro (puede ser "ftp" o vacío)
+
     echo "Seleccione el servicio que desea instalar:"
     echo "1.- Apache"
     echo "2.- Tomcat"
@@ -449,21 +452,22 @@ seleccionar_servicio() {
     case $opcion in
         1)
             servicio="Apache"
-            obtener_versiones_apache
+            [[ "$modo" != "ftp" ]] && obtener_versiones_apache  # Solo si NO es FTP
             ;;
         2)
             servicio="Tomcat"
-            obtener_versiones_tomcat
+            [[ "$modo" != "ftp" ]] && obtener_versiones_tomcat  # Solo si NO es FTP
             ;;
         3)
             servicio="Nginx"
-            obtener_versiones_nginx
+            [[ "$modo" != "ftp" ]] && obtener_versiones_nginx  # Solo si NO es FTP
             ;;
         *)
             echo "Opción no válida. Intente de nuevo."
             ;;
     esac
 }
+
 
 # Función para seleccionar la versión de un servicio ya seleccionado
 seleccionar_version() {
@@ -1103,4 +1107,351 @@ generar_keystore() {
     sudo chown root:root "$keystore_file"
 
     echo "Keystore generado en: $keystore_file"
+}
+
+# Configuración del servidor FTP
+FTP_SERVER="192.168.1.128"  # Cambia por la IP de tu servidor
+FTP_USER="linux"            # O "windows" según corresponda
+FTP_PASS="123"              # Contraseña
+
+seleccionar_version_ftp() {
+    local carpeta_ftp
+
+    # Ajustar la ruta del FTP según el servicio seleccionado
+    case "$servicio" in
+        "Apache") carpeta_ftp="apache" ;;
+        "Tomcat") carpeta_ftp="tomcat" ;;
+        "Nginx") carpeta_ftp="nginx" ;;
+        *) echo "Servicio no válido."; return ;;
+    esac
+
+    echo "Conectando al servidor FTP para listar versiones de $servicio..."
+
+    # Obtener la lista de versiones disponibles en la carpeta FTP
+    versiones_disponibles=$(curl -s --user "$FTP_USER:$FTP_PASS" "ftp://$FTP_SERVER/$carpeta_ftp/" | awk '{print $NF}' | grep -E '^(apache-tomcat-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz|nginx-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz|httpd-[0-9]+\.[0-9]+(\.[0-9]+)?\.tar\.gz)$')
+
+    # Verificar si se encontraron archivos
+    if [[ -z "$versiones_disponibles" ]]; then
+        echo "No se encontraron versiones disponibles en el servidor FTP para $servicio."
+        return
+    fi
+
+    echo "Seleccione la versión disponible:"
+    select archivo in $versiones_disponibles; do
+        if [[ -n "$archivo" ]]; then
+            version="$archivo"  # Guardamos solo el nombre del archivo exacto
+            echo "Versión seleccionada: $version"
+            break
+        else
+            echo "Opción no válida, intente de nuevo."
+        fi
+    done
+}
+
+proceso_instalacion_ftp() {
+    if [[ -z "$servicio" || -z "$version" || -z "$puerto" ]]; then
+        echo "Debe seleccionar el servicio, la versión y el puerto antes de proceder con la instalación."
+        return
+    fi
+
+    # Validar dependencias necesarias
+    if ! comando_existente "gcc" || ! comando_existente "make" || ! comando_existente "wget" || ! comando_existente "curl"; then
+        echo "Faltan dependencias esenciales para la instalación."
+        echo "Por favor, ejecute la opción 1 del menú (Instalar dependencias necesarias) antes de continuar."
+        return 1
+    fi
+
+    echo "Iniciando instalación desde FTP de $servicio versión $version en el puerto $puerto..."
+
+    case $servicio in
+        "Apache")
+            instalar_apache_ftp
+            ;;
+        "Tomcat")
+            instalar_tomcat_ftp
+            ;;
+        "Nginx")
+            instalar_nginx_ftp
+            ;;
+        *)
+            echo "Servicio desconocido. No se puede proceder con la instalación."
+            return 1
+            ;;
+    esac
+
+    echo "Instalación completada para $servicio versión $version en el puerto $puerto."
+
+    # Limpiar variables globales
+    unset servicio
+    unset version
+    unset puerto
+}
+
+instalar_apache_ftp() {
+    echo "Descargando e instalando Apache versión $version desde el servidor FTP..."
+
+    FTP_PATH="apache"  # Se eliminó 'linux/'
+
+    # Descargar Apache desde el FTP usando las constantes globales
+    wget --ftp-user="$FTP_USER" --ftp-password="$FTP_PASS" "ftp://$FTP_SERVER/$FTP_PATH/$version" -O "/tmp/$version"
+    if [[ $? -ne 0 ]]; then
+        echo "Error al descargar Apache $version desde FTP."
+        return 1
+    fi
+
+    # Extraer y compilar Apache
+    tar -xzf "/tmp/$version" -C /tmp
+    extracted_folder="/tmp/${version%.tar.gz}"  # Elimina la extensión .tar.gz para obtener la carpeta correcta
+
+    if [[ ! -d "$extracted_folder" ]]; then
+        echo "Error: No se pudo encontrar la carpeta extraída $extracted_folder."
+        return 1
+    fi
+
+    cd "$extracted_folder" || exit 1
+
+    echo "Compilando Apache (esto puede tardar)..."
+    ./configure --prefix=/usr/local/apache2 --enable-so --enable-ssl > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar ./configure para Apache."
+        return 1
+    fi
+
+    make > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar make para Apache."
+        return 1
+    fi
+
+    sudo make install > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar make install para Apache."
+        return 1
+    fi
+
+    # Configurar puerto y SSL si es necesario
+    if [[ "$protocolo" == "HTTPS" ]]; then
+        configurar_ssl "apache"
+        sudo bash -c "cat >> /usr/local/apache2/conf/httpd.conf" <<EOF
+LoadModule ssl_module modules/mod_ssl.so
+Listen $puerto
+<VirtualHost *:$puerto>
+    DocumentRoot "/usr/local/apache2/htdocs"
+    SSLEngine on
+    SSLCertificateFile /etc/ssl/apache/server.crt
+    SSLCertificateKeyFile /etc/ssl/apache/server.key
+</VirtualHost>
+EOF
+    else
+        sudo sed -i "s/Listen 80/Listen $puerto/" /usr/local/apache2/conf/httpd.conf
+    fi
+
+    # Iniciar Apache
+    /usr/local/apache2/bin/apachectl start
+
+    habilitar_puerto_firewall "$puerto"
+
+    # Reemplazar el index.html de Apache con el código personalizado
+    cat <<EOF | sudo tee /usr/local/apache2/htdocs/index.html > /dev/null
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PERO QUE DISTINGUIDO PEDRI</title>
+    <style>
+        body {
+            text-align: center;
+            background-color: #004c98;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        h1 {
+            margin-top: 20px;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        marquee {
+            margin-top: 50px;
+        }
+        img {
+            width: 300px;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0px 0px 10px rgba(255, 255, 255, 0.5);
+            margin: 0 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>PERO QUE DISTINGUIDO PEDRI</h1>
+    <marquee behavior="scroll" direction="left" scrollamount="10">
+        <img src="https://upload.wikimedia.org/wikipedia/en/4/47/FC_Barcelona_%28crest%29.svg" 
+             alt="Escudo del FC Barcelona">
+        <img src="https://pbs.twimg.com/media/E5ZP9L2X0Ak8gN2.jpg:large" 
+             alt="Imagen del FC Barcelona">
+        <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSbFMCtfPdNYbLQL0fCGC_ntQuypliAFhJmcg&s" 
+             alt="Pedri Distinguido">
+    </marquee>
+</body>
+</html>
+EOF
+}
+
+
+instalar_tomcat_ftp() {
+    echo "Descargando e instalando Tomcat versión $version desde el servidor FTP..."
+
+    FTP_PATH="tomcat"  # Se eliminó 'linux/'
+
+    # Descargar Tomcat desde el FTP usando las constantes globales
+    wget --ftp-user="$FTP_USER" --ftp-password="$FTP_PASS" "ftp://$FTP_SERVER/$FTP_PATH/$version" -O "/tmp/$version"
+    if [[ $? -ne 0 ]]; then
+        echo "Error al descargar Tomcat $version desde FTP."
+        return 1
+    fi
+
+    # Limpiar instalación previa (si existe)
+    if [[ -d "/opt/tomcat" ]]; then
+        echo "Eliminando instalación previa de Tomcat..."
+        sudo rm -rf /opt/tomcat
+    fi
+
+    sudo mkdir -p /opt/tomcat
+    sudo tar -xzf "/tmp/$version" -C /opt/tomcat --strip-components=1
+
+    # Configurar solo HTTPS si el protocolo es HTTPS
+    if [[ "$protocolo" == "HTTPS" ]]; then
+        echo "Configurando solo HTTPS para Tomcat..."
+        
+        # Generar certificado y keystore usando las funciones
+        configurar_ssl "tomcat"
+        generar_keystore "tomcat"
+
+        # Ruta del keystore generado
+        keystore_file="/etc/ssl/tomcat/keystore.p12"
+
+        # Configurar Tomcat para que solo tenga HTTPS en server.xml
+        sudo sed -i "/<Connector port=\"8080\"/,+2d" /opt/tomcat/conf/server.xml  # Elimina el conector HTTP
+
+        sudo sed -i "/<\/Service>/i\
+        <Connector port=\"$puerto\" protocol=\"org.apache.coyote.http11.Http11NioProtocol\" SSLEnabled=\"true\">\n\
+            <SSLHostConfig>\n\
+                <Certificate certificateKeystoreFile=\"$keystore_file\"\n\
+                             type=\"RSA\"\n\
+                             certificateKeystorePassword=\"1234\" />\n\
+            </SSLHostConfig>\n\
+        </Connector>" /opt/tomcat/conf/server.xml
+
+        echo "Tomcat ahora solo escuchará en HTTPS en el puerto $puerto."
+
+    else
+        # Configuración solo para HTTP (sin HTTPS)
+        echo "Configurando Tomcat en HTTP..."
+        sudo sed -i "s/Connector port=\"8080\"/Connector port=\"$puerto\"/" /opt/tomcat/conf/server.xml
+    fi
+
+    # Iniciar Tomcat
+    /opt/tomcat/bin/startup.sh
+
+    # Abrir el puerto en el firewall
+    habilitar_puerto_firewall "$puerto"
+
+    echo "Tomcat $version instalado y configurado en el puerto $puerto con protocolo $protocolo."
+}
+
+instalar_nginx_ftp() {
+    echo "Descargando e instalando NGINX versión $version desde el servidor FTP..."
+
+    FTP_PATH="nginx"  # Se eliminó 'linux/'
+
+    # Descargar NGINX desde el FTP usando las constantes globales
+    wget --ftp-user="$FTP_USER" --ftp-password="$FTP_PASS" "ftp://$FTP_SERVER/$FTP_PATH/$version" -O "/tmp/$version"
+    if [[ $? -ne 0 ]]; then
+        echo "Error al descargar NGINX $version desde FTP."
+        return 1
+    fi
+
+    # Limpiar instalación previa (si existe)
+    if [[ -d "/usr/local/nginx" ]]; then
+        echo "Eliminando instalación previa de NGINX..."
+        sudo rm -rf /usr/local/nginx
+    fi
+
+    # Extraer y compilar Nginx con SSL habilitado
+    tar -xzf "/tmp/$version" -C /tmp
+    cd "/tmp/${version%.tar.gz}" || exit 1  # Elimina la extensión .tar.gz para obtener la carpeta correcta
+
+    echo "Compilando NGINX (esto puede tardar)..."
+    ./configure --prefix=/usr/local/nginx --with-http_ssl_module > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar ./configure para NGINX."
+        return 1
+    fi
+
+    make > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar make para NGINX."
+        return 1
+    fi
+
+    sudo make install > /dev/null
+    if [[ $? -ne 0 ]]; then
+        echo "Error al ejecutar make install para NGINX."
+        return 1
+    fi
+
+    # Configuración SSL y puerto
+    if [[ "$protocolo" == "HTTPS" ]]; then
+        # Generar el certificado SSL si no existe
+        if [ ! -f "/etc/ssl/nginx/server.crt" ] || [ ! -f "/etc/ssl/nginx/server.key" ]; then
+            echo "Generando certificado SSL/TLS autofirmado para Nginx..."
+            configurar_ssl "nginx"
+        fi
+
+        # Configurar SSL en Nginx con la configuración proporcionada
+        sudo bash -c "cat > /usr/local/nginx/conf/nginx.conf" <<EOF
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    server {
+        listen       $puerto ssl;
+        server_name  localhost;
+
+        ssl_certificate /etc/ssl/nginx/server.crt;
+        ssl_certificate_key /etc/ssl/nginx/server.key;
+
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+}
+EOF
+    else
+        # Si no se requiere SSL, simplemente configura el puerto
+        sudo sed -i "s/listen       80;/listen       $puerto;/g" /usr/local/nginx/conf/nginx.conf
+    fi
+
+    # Iniciar NGINX
+    /usr/local/nginx/sbin/nginx
+
+    habilitar_puerto_firewall "$puerto"
+
+    echo "NGINX $version instalado y configurado en el puerto $puerto."
 }
