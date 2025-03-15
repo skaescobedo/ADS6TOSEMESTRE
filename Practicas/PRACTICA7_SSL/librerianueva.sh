@@ -747,20 +747,44 @@ instalar_tomcat() {
     sudo mkdir -p /opt/tomcat
     sudo tar -xzf "/tmp/tomcat-$version.tar.gz" -C /opt/tomcat --strip-components=1
 
-    # Configurar puerto y SSL si es necesario
+    # Configurar solo HTTPS si el protocolo es HTTPS
     if [[ "$protocolo" == "HTTPS" ]]; then
+        echo "Configurando solo HTTPS para Tomcat..."
+        
+        # Generar certificado y keystore usando las funciones
         configurar_ssl "tomcat"
-        sudo sed -i "/<Connector port=\"8080\"/c\    <Connector port=\"$puerto\" protocol=\"HTTP/1.1\" SSLEnabled=\"true\" scheme=\"https\" secure=\"true\" clientAuth=\"false\" sslProtocol=\"TLS\" keystoreFile=\"/etc/ssl/tomcat/server.jks\" keystorePass=\"changeit\" />" /opt/tomcat/conf/server.xml
+        generar_keystore "tomcat"
+
+        # Ruta del keystore generado
+        keystore_file="/etc/ssl/tomcat/keystore.p12"
+
+        # Configurar Tomcat para que solo tenga HTTPS en server.xml
+        sudo sed -i "/<Connector port=\"8080\"/,+2d" /opt/tomcat/conf/server.xml  # Elimina el conector HTTP
+
+        sudo sed -i "/<\/Service>/i\
+        <Connector port=\"$puerto\" protocol=\"org.apache.coyote.http11.Http11NioProtocol\" SSLEnabled=\"true\">\n\
+            <SSLHostConfig>\n\
+                <Certificate certificateKeystoreFile=\"$keystore_file\"\n\
+                             type=\"RSA\"\n\
+                             certificateKeystorePassword=\"1234\" />\n\
+            </SSLHostConfig>\n\
+        </Connector>" /opt/tomcat/conf/server.xml
+
+        echo "Tomcat ahora solo escuchará en HTTPS en el puerto $puerto."
+
     else
+        # Configuración solo para HTTP (sin HTTPS)
+        echo "Configurando Tomcat en HTTP..."
         sudo sed -i "s/Connector port=\"8080\"/Connector port=\"$puerto\"/" /opt/tomcat/conf/server.xml
     fi
 
     # Iniciar Tomcat
     /opt/tomcat/bin/startup.sh
 
+    # Abrir el puerto en el firewall
     habilitar_puerto_firewall "$puerto"
 
-    echo "Tomcat $version instalado y configurado en el puerto $puerto."
+    echo "Tomcat $version instalado y configurado en el puerto $puerto con protocolo $protocolo."
 }
 
 instalar_nginx() {
@@ -1061,4 +1085,22 @@ configurar_ssl() {
         -subj "/C=US/ST=Example/L=City/O=Company/CN=localhost"
 
     echo "Certificado generado en: $cert_dir"
+}
+
+generar_keystore() {
+    local servicio=$1
+    local cert_dir="/etc/ssl/$servicio"
+    local keystore_pass="1234"
+    local keystore_file="$cert_dir/keystore.p12"
+
+    echo "Convirtiendo certificado SSL a formato PKCS12 para $servicio..."
+
+    sudo openssl pkcs12 -export -in "$cert_dir/server.crt" -inkey "$cert_dir/server.key" \
+        -out "$keystore_file" -name tomcat -password pass:$keystore_pass
+
+    # Ajustar permisos
+    sudo chmod 644 "$keystore_file"
+    sudo chown root:root "$keystore_file"
+
+    echo "Keystore generado en: $keystore_file"
 }
