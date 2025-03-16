@@ -360,14 +360,28 @@ $global:puerto = ""     # Almacena el puerto en el que se configurará el servic
 $global:versions = @()  # Almacena un array con las versiones disponibles del servicio seleccionado
 
 function seleccionar_servicio {
+    param (
+        [string]$modo  # Parámetro opcional que indica si es "ftp"
+    )
+
     Write-Host "Seleccione el servicio que desea instalar:"
-    Write-Host "1.- IIS"
+
+    if ($modo -eq "ftp") {
+        Write-Host "1.- IIS (solo se instala desde web, si quiere instalarlo regrese al instalador de web)"
+    } else {
+        Write-Host "1.- IIS"
+    }
+
     Write-Host "2.- Apache"
     Write-Host "3.- Tomcat"
     $opcion = Read-Host "Opción"
 
     switch ($opcion) {
         "1" {
+            if ($modo -eq "ftp") {
+                Write-Host "IIS no es descargable desde FTP. Si desea instalarlo, regrese al instalador de Web."
+                return
+            }
             $global:servicio = "IIS"
             Write-Host "Servicio seleccionado: IIS"
             obtener_versiones_IIS
@@ -375,16 +389,20 @@ function seleccionar_servicio {
         "2" {
             $global:servicio = "Apache"
             Write-Host "Servicio seleccionado: Apache"
-            obtener_versiones_apache
+            if ($modo -ne "ftp") {
+                obtener_versiones_apache
+            }
         }
         "3" {
             $global:servicio = "Tomcat"
             Write-Host "Servicio seleccionado: Tomcat"
-            obtener_versiones_tomcat
+            if ($modo -ne "ftp") {
+                obtener_versiones_tomcat
+            }
         }
         default {
             Write-Host "Opción no válida. Intente de nuevo."
-            seleccionar_servicio
+            seleccionar_servicio -modo $modo
         }
     }
 }
@@ -1178,5 +1196,427 @@ function seleccionar_protocolo {
             Write-Host "Opción no válida. Intente de nuevo."
             seleccionar_protocolo
         }
+    }
+}
+
+# Configuración del servidor FTP
+$FTP_SERVER = "192.168.1.128"  # Cambia por la IP de tu servidor
+$FTP_USER = "windows"          # Usuario para Windows
+$FTP_PASS = "123"              # Contraseña
+
+function seleccionar_version_ftp {
+    # Si el servicio es IIS, no permitir selección de versión
+    if ($global:servicio -eq "IIS") {
+        Write-Host "IIS no tiene versiones seleccionables. Se instalará la versión predeterminada para Windows Server."
+        $global:version = "IIS (Versión según sistema operativo)"
+        return
+    }
+
+    # Ajustar la carpeta FTP según el servicio seleccionado
+    $carpeta_ftp = switch ($global:servicio) {
+        "Apache" { "apache" }
+        "Tomcat" { "tomcat" }
+        "Nginx" { "nginx" }
+        default {
+            Write-Host "Servicio no válido."
+            return
+        }
+    }
+
+    Write-Host "Conectando al servidor FTP para listar versiones de $global:servicio..."
+
+    # Definir la URL del FTP
+    $ftpUri = "ftp://$FTP_SERVER/$carpeta_ftp/"
+
+    # Crear la solicitud FTP para obtener la lista de archivos
+    try {
+        $request = [System.Net.FtpWebRequest]::Create($ftpUri)
+        $request.Method = [System.Net.WebRequestMethods+Ftp]::ListDirectory
+        $request.Credentials = New-Object System.Net.NetworkCredential($FTP_USER, $FTP_PASS)
+        $request.UseBinary = $true
+        $request.UsePassive = $true
+
+        $response = $request.GetResponse()
+        $stream = $response.GetResponseStream()
+        $reader = New-Object System.IO.StreamReader($stream)
+        $versionesDisponibles = $reader.ReadToEnd() -split "`r`n"
+
+        $reader.Close()
+        $response.Close()
+
+        # Filtrar solo archivos válidos según el servicio
+        $versionesDisponibles = $versionesDisponibles | Where-Object { 
+            $_ -match '^(httpd-[0-9]+\.[0-9]+\.[0-9]+.*\.zip|apache-tomcat-[0-9]+\.[0-9]+\.[0-9]+.*\.zip|nginx-[0-9]+\.[0-9]+\.[0-9]+.*\.zip)$' 
+        }
+
+        if ($versionesDisponibles.Count -eq 0 -or -not $versionesDisponibles[0]) {
+            Write-Host "No se encontraron versiones disponibles en el servidor FTP para $global:servicio."
+            return
+        }
+
+        # Mostrar opciones y permitir selección
+        Write-Host "Seleccione la versión disponible:"
+        for ($i = 0; $i -lt $versionesDisponibles.Count; $i++) {
+            Write-Host "$($i+1). $($versionesDisponibles[$i])"
+        }
+
+        $seleccion = Read-Host "Ingrese el número de la versión deseada"
+        if ($seleccion -match "^\d+$" -and $seleccion -ge 1 -and $seleccion -le $versionesDisponibles.Count) {
+            $global:version = $versionesDisponibles[$seleccion - 1]
+            Write-Host "Versión seleccionada: $global:version"
+        } else {
+            Write-Host "Opción no válida, intente de nuevo."
+            seleccionar_version_ftp  # Volver a ejecutar la función si la opción no es válida
+        }
+    } catch {
+        Write-Host "Error al conectar al servidor FTP: $_"
+    }
+}
+
+function proceso_instalacion_ftp {
+    if (-not $global:servicio -or -not $global:version -or -not $global:puerto) {
+        Write-Host "Debe seleccionar el servicio, la versión y el puerto antes de proceder con la instalación."
+        return
+    }
+
+    Write-Host "Iniciando instalación desde FTP de $global:servicio versión $global:version en el puerto $global:puerto..."
+
+    switch ($global:servicio) {
+        "Apache" {
+            instalar_apache_ftp
+        }
+        "Tomcat" {
+            instalar_tomcat_ftp
+        }
+        "IIS" {
+            Write-Host "Error: IIS no se puede instalar desde FTP. Use el instalador web en su lugar."
+            return
+        }
+        default {
+            Write-Host "Servicio desconocido o no soportado en FTP. No se puede proceder."
+            return
+        }
+    }
+
+    Write-Host "Instalación completada para $global:servicio versión $global:version en el puerto $global:puerto."
+
+    # Limpiar variables globales después de la instalación
+    $global:servicio = $null
+    $global:version = $null
+    $global:puerto = $null
+}
+
+function instalar_apache_ftp {
+    # Verificar que la versión de Apache está definida
+    if (-not $global:version) {
+        Write-Host "Error: No se ha seleccionado una versión de Apache. Ejecute 'Seleccionar-Version-FTP' antes de instalar Apache."
+        return
+    }
+
+    # Verificar que el puerto está definido
+    if (-not $global:puerto) {
+        Write-Host "Error: No se ha definido un puerto válido. Ejecute 'preguntar_puerto' antes de instalar Apache."
+        return
+    }
+
+    # Definir ruta de descarga desde el FTP
+    $ftpUri = "ftp://$FTP_SERVER/apache/$global:version"
+    $destinoZip = "$env:USERPROFILE\Downloads\apache-$global:version.zip"
+    $extraerdestino = "C:\Apache24"
+
+    try {
+        Write-Host "Iniciando instalación de Apache HTTP Server versión $global:version desde FTP..."
+
+        # Descargar Apache desde el servidor FTP
+        Write-Host "Descargando Apache desde: $ftpUri"
+        $webClient = New-Object System.Net.WebClient
+        $webClient.Credentials = New-Object System.Net.NetworkCredential($FTP_USER, $FTP_PASS)
+        $webClient.DownloadFile($ftpUri, $destinoZip)
+        Write-Host "Apache descargado en: $destinoZip"
+
+        # Extraer Apache en C:\Apache24
+        Write-Host "Extrayendo archivos de Apache..."
+        Expand-Archive -Path $destinoZip -DestinationPath "C:\" -Force
+        Write-Host "Apache extraído en $extraerdestino"
+        Remove-Item -Path $destinoZip -Force
+
+        # Configurar SSL si el protocolo es HTTPS
+        if ($global:protocolo -eq "HTTPS") {
+            Write-Host "Configurando Apache para HTTPS..."
+
+            # Crear carpeta SSL si no existe
+            $sslDir = "$extraerdestino\conf\ssl"
+            if (-not (Test-Path $sslDir)) {
+                New-Item -ItemType Directory -Path $sslDir -Force | Out-Null
+            }
+
+            # Verificar si OpenSSL está instalado
+            $opensslPath = "C:\Program Files\OpenSSL-Win64\bin\openssl.exe"
+            if (-Not (Test-Path $opensslPath)) {
+                Write-Host "Error: OpenSSL no está instalado en la ruta esperada."
+                return
+            }
+
+            # Generar clave privada y certificado
+            Write-Host "Generando certificado SSL con OpenSSL..."
+            & $opensslPath req -x509 -nodes -days 365 -newkey rsa:2048 `
+                -keyout "$sslDir\server.key" -out "$sslDir\server.crt" `
+                -subj "/C=MX/ST=Sinaloa/L=LosMochis/O=Empresa/OU=IT/CN=localhost" 2>&1 | Out-Null
+
+            Write-Host "Certificado generado correctamente en $sslDir"
+        }
+
+        # Configurar httpd.conf
+        $configFile = Join-Path $extraerdestino "conf\httpd.conf"
+        if (Test-Path $configFile) {
+            $confContent = Get-Content $configFile
+
+            # Descomentar módulos necesarios para SSL
+            $confContent = $confContent -replace "#\s*LoadModule ssl_module modules/mod_ssl.so", "LoadModule ssl_module modules/mod_ssl.so"
+            $confContent = $confContent -replace "#\s*LoadModule socache_shmcb_module modules/mod_socache_shmcb.so", "LoadModule socache_shmcb_module modules/mod_socache_shmcb.so"
+            $confContent = $confContent -replace "#\s*LoadModule headers_module modules/mod_headers.so", "LoadModule headers_module modules/mod_headers.so"
+
+            if ($global:protocolo -eq "HTTPS") {
+                # Si HTTPS está activado, eliminar cualquier "Listen" de httpd.conf
+                $confContent = $confContent -replace "(?m)^Listen \d+", ""
+
+                # Descomentar o agregar la línea para incluir httpd-ssl.conf
+                if ($confContent -match "#\s*Include conf/extra/httpd-ssl.conf") {
+                    $confContent = $confContent -replace "#\s*Include conf/extra/httpd-ssl.conf", "Include conf/extra/httpd-ssl.conf"
+                } elseif (-not ($confContent -match "Include conf/extra/httpd-ssl.conf")) {
+                    Add-Content -Path $configFile -Value "`nInclude conf/extra/httpd-ssl.conf"
+                }
+            } else {
+                # Si HTTPS no está activado, asegurarse de que Listen solo está en httpd.conf
+                $confContent = $confContent -replace "(?m)^Listen \d+", "Listen $global:puerto"
+            }
+
+            # Guardar cambios en httpd.conf
+            $confContent | Set-Content $configFile
+            Write-Host "Configuración actualizada para escuchar en el puerto $global:puerto"
+        } else {
+            Write-Host "Error: No se encontró el archivo de configuración en $configFile"
+            return
+        }
+
+        # Configurar httpd-ssl.conf si HTTPS está activado
+        if ($global:protocolo -eq "HTTPS") {
+            $sslConfFile = Join-Path $extraerdestino "conf\extra\httpd-ssl.conf"
+            if (Test-Path $sslConfFile) {
+                $sslContent = Get-Content $sslConfFile
+
+                # Asegurar que se usa el puerto correcto
+                $sslContent = $sslContent -replace "Listen \d+", "Listen $global:puerto"
+                $sslContent = $sslContent -replace "VirtualHost _default_:\d+", "VirtualHost _default_:$global:puerto"
+
+                # Asegurar rutas absolutas a los certificados
+                $sslContent = $sslContent -replace "SSLCertificateFile .*", "SSLCertificateFile `"$sslDir\server.crt`""
+                $sslContent = $sslContent -replace "SSLCertificateKeyFile .*", "SSLCertificateKeyFile `"$sslDir\server.key`""
+
+                # Guardar cambios en httpd-ssl.conf
+                $sslContent | Set-Content $sslConfFile
+                Write-Host "Configuración SSL actualizada en httpd-ssl.conf"
+            } else {
+                Write-Host "Error: No se encontró el archivo httpd-ssl.conf"
+                return
+            }
+        }
+
+        # Buscar el ejecutable de Apache
+        $apacheExe = Get-ChildItem -Path $extraerdestino -Recurse -Filter httpd.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($apacheExe) {
+            $exeApache = $apacheExe.FullName
+            Write-Host "Instalando Apache como servicio..."
+            Start-Process -FilePath $exeApache -ArgumentList '-k', 'install', '-n', 'Apache24' -NoNewWindow -Wait
+
+            # Verificar la sintaxis antes de iniciar
+            Write-Host "Verificando sintaxis de Apache..."
+            $syntaxCheck = & $exeApache -t 2>&1
+            if ($syntaxCheck -match "Syntax OK") {
+                Write-Host "Sintaxis correcta, iniciando Apache..."
+                Start-Service -Name "Apache24"
+                Write-Host "Apache instalado y ejecutándose en el puerto $global:puerto"
+
+                # Habilitar el puerto en el firewall al final de la instalación
+                habilitar_puerto_firewall
+            } else {
+                Write-Host "Error de configuración en Apache:"
+                Write-Host $syntaxCheck
+                return
+            }
+        } else {
+            Write-Host "Error: No se encontró el ejecutable httpd.exe en $extraerdestino"
+        }
+    } catch {
+        Write-Host "Error durante la instalación de Apache desde FTP: $_"
+    }
+}
+
+function instalar_tomcat_ftp {
+    Write-Host "`n============================================"
+    Write-Host "   Instalando Apache Tomcat desde FTP...   "
+    Write-Host "============================================"
+
+    # Verificar que la versión de Tomcat está definida
+    if (-not $global:version) {
+        Write-Host "Error: No se ha seleccionado una versión de Tomcat. Ejecute 'Seleccionar-Version-FTP' antes de instalar Tomcat."
+        return
+    }
+
+    # Verificar que el puerto está definido
+    if (-not $global:puerto) {
+        Write-Host "Error: No se ha definido un puerto válido. Ejecute 'preguntar_puerto' antes de instalar Tomcat."
+        return
+    }
+
+    # Verificar y configurar JAVA_HOME
+    $jdkBasePath = "C:\Java"
+    $jdkInstallPath = Get-ChildItem -Path $jdkBasePath -Directory | Where-Object { $_.Name -match "^jdk21.*" } | Select-Object -ExpandProperty FullName -First 1
+
+    if (-not $jdkInstallPath -or -not (Test-Path "$jdkInstallPath\bin\java.exe")) {
+        Write-Host "Error: Amazon Corretto JDK 21 no está instalado correctamente. Ejecute 'instalar_dependencias' primero."
+        return
+    }
+
+    # Configurar JAVA_HOME y agregarlo al Path
+    Write-Host "Configurando JAVA_HOME..."
+    [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkInstallPath, [System.EnvironmentVariableTarget]::Machine)
+    $env:JAVA_HOME = $jdkInstallPath
+    $env:Path += ";$jdkInstallPath\bin"
+
+    Write-Host "JAVA_HOME configurado correctamente en: $env:JAVA_HOME"
+
+    # Definir ruta de descarga desde el FTP
+    $ftpUri = "ftp://$FTP_SERVER/tomcat/$global:version"
+    $destinoZip = "$env:USERPROFILE\Downloads\tomcat-$global:version.zip"
+    $extraerDestino = "C:\Tomcat"
+
+    try {
+        Write-Host "Descargando Tomcat desde: $ftpUri"
+        $webClient = New-Object System.Net.WebClient
+        $webClient.Credentials = New-Object System.Net.NetworkCredential($FTP_USER, $FTP_PASS)
+        $webClient.DownloadFile($ftpUri, $destinoZip)
+        Write-Host "Tomcat descargado en: $destinoZip"
+
+        # Eliminar instalación previa si existe
+        if (Test-Path $extraerDestino) {
+            Write-Host "Eliminando instalación previa de Tomcat..."
+            Remove-Item -Path $extraerDestino -Recurse -Force
+        }
+
+        # Extraer Tomcat
+        Write-Host "Extrayendo archivos de Tomcat en $extraerDestino..."
+        Expand-Archive -Path $destinoZip -DestinationPath "C:\" -Force
+        Remove-Item -Path $destinoZip -Force
+
+        # Detectar si los archivos están dentro de una subcarpeta
+        $subcarpeta = Get-ChildItem -Path "C:\" | Where-Object { $_.PSIsContainer -and $_.Name -match "apache-tomcat-" }
+        if ($subcarpeta) {
+            Write-Host "Moviendo archivos de $($subcarpeta.FullName) a $extraerDestino..."
+            Rename-Item -Path $subcarpeta.FullName -NewName "Tomcat"
+        }
+
+        # Verificar que server.xml exista en la ubicación correcta
+        $configFile = "$extraerDestino\conf\server.xml"
+        if (-not (Test-Path $configFile)) {
+            Write-Host "Error: No se encontró el archivo de configuración en $configFile"
+            return
+        }
+
+        # Configurar HTTPS si el protocolo es HTTPS
+        if ($global:protocolo -eq "HTTPS") {
+            Write-Host "Configurando SSL en Tomcat..."
+
+            # Ruta para almacenar keystore
+            $sslDir = "$extraerDestino\conf"
+            $keystorePath = "$sslDir\keystore.jks"
+            $keystorePass = "changeit"
+
+            # Verificar si keytool existe
+            $keytoolPath = "$jdkInstallPath\bin\keytool.exe"
+            if (-not (Test-Path $keytoolPath)) {
+                Write-Host "Error: No se encontró keytool.exe en $keytoolPath"
+                return
+            }
+
+            Write-Host "Generando certificado SSL autofirmado..."
+            $sslCommand = "& `"$keytoolPath`" -genkeypair -alias tomcat -keyalg RSA -keysize 2048 -validity 365 -keystore `"$keystorePath`" -storepass `"$keystorePass`" -dname `"CN=localhost, OU=IT, O=Empresa, L=LosMochis, ST=Sinaloa, C=MX`"" 
+
+            # Ejecutar y capturar salida de keytool
+            $sslOutput = Invoke-Expression $sslCommand 2>&1
+            if ($sslOutput -match "Exception" -or $sslOutput -match "Error") {
+                Write-Host "Error al generar el certificado SSL: $sslOutput"
+                return
+            }
+
+            # Modificar server.xml para que solo use HTTPS
+            Write-Host "Modificando server.xml para habilitar HTTPS..."
+            $serverConfig = Get-Content $configFile
+
+            # Eliminar conector HTTP si existe
+            $serverConfig = $serverConfig -replace '<Connector port="8080".*?>', ""
+
+            # Agregar conector HTTPS con keystore
+            $sslConfig = @"
+<Connector port="$global:puerto" protocol="org.apache.coyote.http11.Http11NioProtocol"
+           SSLEnabled="true" maxThreads="200"
+           scheme="https" secure="true"
+           clientAuth="false" sslProtocol="TLS">
+    <SSLHostConfig>
+        <Certificate certificateKeystoreFile="$keystorePath"
+                     type="RSA"
+                     certificateKeystorePassword="$keystorePass" />
+    </SSLHostConfig>
+</Connector>
+"@
+
+            # Insertar configuración SSL antes de </Service>
+            $serverConfig = $serverConfig -replace '(</Service>)', "$sslConfig`n`$1"
+            $serverConfig | Set-Content $configFile
+            Write-Host "SSL configurado correctamente en Tomcat."
+        } else {
+            Write-Host "Configurando Tomcat en HTTP..."
+            (Get-Content $configFile) -replace 'Connector port="8080"', "Connector port=`"$global:puerto`"" | Set-Content $configFile
+        }
+
+        # Registrar Tomcat como servicio correctamente
+        $tomcatService = "$extraerDestino\bin\service.bat"
+        if (Test-Path $tomcatService) {
+            Write-Host "Registrando Tomcat como servicio..."
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$tomcatService`" install" -WorkingDirectory "$extraerDestino\bin" -NoNewWindow -Wait
+
+            # Obtener el nombre correcto del servicio Tomcat instalado
+            $serviceList = Get-Service | Where-Object { $_.Name -match "Tomcat" }
+            if ($serviceList.Count -gt 1) {
+                Write-Host "Se encontraron múltiples servicios de Tomcat, seleccionando el primero..."
+            }
+            $tomcatServiceName = $serviceList[0].Name
+
+            if (-not $tomcatServiceName) {
+                Write-Host "Error: No se pudo determinar el nombre del servicio de Tomcat."
+                return
+            }
+
+            Write-Host "Nombre del servicio detectado: $tomcatServiceName"
+
+            # Iniciar el servicio de Tomcat
+            Start-Service -Name $tomcatServiceName -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 5
+
+            # Verificar si el servicio se inició correctamente
+            $serviceStatus = Get-Service -Name $tomcatServiceName
+            if ($serviceStatus.Status -eq "Running") {
+                Write-Host "Tomcat está corriendo en el puerto $global:puerto."
+            } else {
+                Write-Host "Error: El servicio $tomcatServiceName no se inició correctamente."
+            }
+
+            # Habilitar el puerto en el firewall
+            habilitar_puerto_firewall
+        } else {
+            Write-Host "Error: No se encontró el archivo service.bat en $extraerDestino\bin"
+        }
+    } catch {
+        Write-Host "Error durante la instalación de Tomcat desde FTP: $_"
     }
 }
