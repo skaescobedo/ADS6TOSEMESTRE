@@ -1015,7 +1015,7 @@ function instalar_tomcat {
         return
     }
 
-    # Verificar y configurar JAVA_HOME con la detección automática del JDK instalado
+    # Verificar y configurar JAVA_HOME
     $jdkBasePath = "C:\Java"
     $jdkInstallPath = Get-ChildItem -Path $jdkBasePath -Directory | Where-Object { $_.Name -match "^jdk21.*" } | Select-Object -ExpandProperty FullName -First 1
 
@@ -1044,9 +1044,9 @@ function instalar_tomcat {
         Invoke-WebRequest -Uri $url -OutFile $destinoZip -MaximumRedirection 10 -UseBasicParsing
         Write-Host "Tomcat descargado en: $destinoZip"
 
-        # Si la carpeta C:\Tomcat ya existe, la eliminamos
+        # Eliminar instalación previa si existe
         if (Test-Path $extraerDestino) {
-            Write-Host "Limpiando instalación anterior de Tomcat..."
+            Write-Host "Eliminando instalación previa de Tomcat..."
             Remove-Item -Path $extraerDestino -Recurse -Force
         }
 
@@ -1078,7 +1078,7 @@ function instalar_tomcat {
             $keystorePath = "$sslDir\keystore.jks"
             $keystorePass = "changeit"
 
-            # Generar keystore con keytool
+            # Verificar si keytool existe
             $keytoolPath = "$jdkInstallPath\bin\keytool.exe"
             if (-not (Test-Path $keytoolPath)) {
                 Write-Host "Error: No se encontró keytool.exe en $keytoolPath"
@@ -1086,9 +1086,14 @@ function instalar_tomcat {
             }
 
             Write-Host "Generando certificado SSL autofirmado..."
-            & "$keytoolPath" -genkeypair -alias tomcat -keyalg RSA -keysize 2048 -validity 365 `
-                -keystore "$keystorePath" -storepass "$keystorePass" `
-                -dname "CN=localhost, OU=IT, O=Empresa, L=LosMochis, ST=Sinaloa, C=MX"
+            $sslCommand = "& `"$keytoolPath`" -genkeypair -alias tomcat -keyalg RSA -keysize 2048 -validity 365 -keystore `"$keystorePath`" -storepass `"$keystorePass`" -dname `"CN=localhost, OU=IT, O=Empresa, L=LosMochis, ST=Sinaloa, C=MX`""
+
+            # Ejecutar y capturar salida de keytool
+            $sslOutput = Invoke-Expression $sslCommand 2>&1
+            if ($sslOutput -match "Exception" -or $sslOutput -match "Error") {
+                Write-Host "Error al generar el certificado SSL: $sslOutput"
+                return
+            }
 
             # Modificar server.xml para que solo use HTTPS
             Write-Host "Modificando server.xml para habilitar HTTPS..."
@@ -1126,31 +1131,19 @@ function instalar_tomcat {
             Write-Host "Registrando Tomcat como servicio..."
             Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$tomcatService`" install" -WorkingDirectory "$extraerDestino\bin" -NoNewWindow -Wait
 
-            # Verificar que el servicio se instaló
+            # Iniciar el servicio de Tomcat
             $tomcatServiceName = "Tomcat$majorVersion"
-            $serviceExists = Get-Service -Name $tomcatServiceName -ErrorAction SilentlyContinue
-
-            if ($serviceExists) {
-                Write-Host "Servicio $tomcatServiceName instalado correctamente."
-
-                # Iniciar el servicio de Tomcat
-                Write-Host "Iniciando servicio de Tomcat..."
-                Start-Service -Name $tomcatServiceName -ErrorAction SilentlyContinue
-
-                # Esperar unos segundos y verificar si está corriendo
-                Start-Sleep -Seconds 5
-                $serviceStatus = Get-Service -Name $tomcatServiceName
-                if ($serviceStatus.Status -eq "Running") {
-                    Write-Host "Tomcat está corriendo en el puerto $global:puerto."
-                } else {
-                    Write-Host "Error: El servicio $tomcatServiceName no se inició correctamente."
-                }
-
-                # Habilitar el puerto en el firewall
-                habilitar_puerto_firewall
+            Start-Service -Name $tomcatServiceName -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 5
+            $serviceStatus = Get-Service -Name $tomcatServiceName
+            if ($serviceStatus.Status -eq "Running") {
+                Write-Host "Tomcat está corriendo en el puerto $global:puerto."
             } else {
-                Write-Host "Error: No se pudo registrar el servicio de Tomcat."
+                Write-Host "Error: El servicio $tomcatServiceName no se inició correctamente."
             }
+
+            # Habilitar el puerto en el firewall
+            habilitar_puerto_firewall
         } else {
             Write-Host "Error: No se encontró el archivo service.bat en $extraerDestino\bin"
         }
@@ -1158,6 +1151,7 @@ function instalar_tomcat {
         Write-Host "Error durante la instalación de Tomcat: $_"
     }
 }
+
 
 # ------------------------------------------------
 # HTTPS
