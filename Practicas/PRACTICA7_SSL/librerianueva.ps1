@@ -1028,23 +1028,13 @@ function instalar_tomcat {
     Write-Host "Configurando JAVA_HOME..."
     [System.Environment]::SetEnvironmentVariable("JAVA_HOME", $jdkInstallPath, [System.EnvironmentVariableTarget]::Machine)
     $env:JAVA_HOME = $jdkInstallPath
-
-    # Asegurar que el JDK esté en el Path
-    $currentPath = [System.Environment]::GetEnvironmentVariable("Path", [System.EnvironmentVariableTarget]::Machine)
-    if ($currentPath -notlike "*$jdkInstallPath\bin*") {
-        $newPath = "$currentPath;$jdkInstallPath\bin"
-        [System.Environment]::SetEnvironmentVariable("Path", $newPath, [System.EnvironmentVariableTarget]::Machine)
-    }
-    $env:Path = "$env:Path;$jdkInstallPath\bin"
+    $env:Path += ";$jdkInstallPath\bin"
 
     Write-Host "JAVA_HOME configurado correctamente en: $env:JAVA_HOME"
 
     # Definir URLs y rutas
     $tomcatVersion = $global:version
-    Write-Host "Versión completa de Tomcat seleccionada: $tomcatVersion"
-    $majorVersion = ($tomcatVersion -split "\.")[0]  # Obtiene solo la versión mayor
-    Write-Host "Versión mayor extraída: $majorVersion"
-    
+    $majorVersion = ($tomcatVersion -split "\.")[0]
     $url = "https://dlcdn.apache.org/tomcat/tomcat-${majorVersion}/v$tomcatVersion/bin/apache-tomcat-$tomcatVersion-windows-x64.zip"
     $destinoZip = "$env:USERPROFILE\Downloads\tomcat-$tomcatVersion.zip"
     $extraerDestino = "C:\Tomcat"
@@ -1067,7 +1057,6 @@ function instalar_tomcat {
 
         # Detectar si los archivos están dentro de una subcarpeta
         $subcarpeta = Get-ChildItem -Path "C:\" | Where-Object { $_.PSIsContainer -and $_.Name -match "apache-tomcat-" }
-
         if ($subcarpeta) {
             Write-Host "Moviendo archivos de $($subcarpeta.FullName) a $extraerDestino..."
             Rename-Item -Path $subcarpeta.FullName -NewName "Tomcat"
@@ -1080,10 +1069,56 @@ function instalar_tomcat {
             return
         }
 
-        # Configurar el puerto en server.xml
-        Write-Host "Configurando Tomcat para el puerto $global:puerto..."
-        (Get-Content $configFile) -replace 'Connector port="8080"', "Connector port=`"$global:puerto`"" | Set-Content $configFile
-        Write-Host "Configuración de Tomcat actualizada con puerto $global:puerto"
+        # Configurar HTTPS si el protocolo es HTTPS
+        if ($global:protocolo -eq "HTTPS") {
+            Write-Host "Configurando SSL en Tomcat..."
+
+            # Ruta para almacenar keystore
+            $sslDir = "$extraerDestino\conf"
+            $keystorePath = "$sslDir\keystore.jks"
+            $keystorePass = "changeit"
+
+            # Generar keystore con keytool
+            $keytoolPath = "$jdkInstallPath\bin\keytool.exe"
+            if (-not (Test-Path $keytoolPath)) {
+                Write-Host "Error: No se encontró keytool.exe en $keytoolPath"
+                return
+            }
+
+            Write-Host "Generando certificado SSL autofirmado..."
+            & "$keytoolPath" -genkeypair -alias tomcat -keyalg RSA -keysize 2048 -validity 365 `
+                -keystore "$keystorePath" -storepass "$keystorePass" `
+                -dname "CN=localhost, OU=IT, O=Empresa, L=LosMochis, ST=Sinaloa, C=MX"
+
+            # Modificar server.xml para que solo use HTTPS
+            Write-Host "Modificando server.xml para habilitar HTTPS..."
+            $serverConfig = Get-Content $configFile
+
+            # Eliminar conector HTTP si existe
+            $serverConfig = $serverConfig -replace '<Connector port="8080".*?>', ""
+
+            # Agregar conector HTTPS con keystore
+            $sslConfig = @"
+<Connector port="$global:puerto" protocol="org.apache.coyote.http11.Http11NioProtocol"
+           SSLEnabled="true" maxThreads="200"
+           scheme="https" secure="true"
+           clientAuth="false" sslProtocol="TLS">
+    <SSLHostConfig>
+        <Certificate certificateKeystoreFile="$keystorePath"
+                     type="RSA"
+                     certificateKeystorePassword="$keystorePass" />
+    </SSLHostConfig>
+</Connector>
+"@
+
+            # Insertar configuración SSL antes de </Service>
+            $serverConfig = $serverConfig -replace '(</Service>)', "$sslConfig`n`$1"
+            $serverConfig | Set-Content $configFile
+            Write-Host "SSL configurado correctamente en Tomcat."
+        } else {
+            Write-Host "Configurando Tomcat en HTTP..."
+            (Get-Content $configFile) -replace 'Connector port="8080"', "Connector port=`"$global:puerto`"" | Set-Content $configFile
+        }
 
         # Registrar Tomcat como servicio correctamente
         $tomcatService = "$extraerDestino\bin\service.bat"
