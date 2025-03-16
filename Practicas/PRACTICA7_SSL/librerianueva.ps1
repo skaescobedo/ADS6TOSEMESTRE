@@ -876,7 +876,7 @@ function instalar_apache {
 
         # Descargar Apache
         Write-Host "Descargando Apache desde: $url"
-        $agente = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        $agente = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         Invoke-WebRequest -Uri $url -OutFile $destinoZip -MaximumRedirection 10 -UserAgent $agente -UseBasicParsing
         Write-Host "Apache descargado en: $destinoZip"
 
@@ -886,14 +886,86 @@ function instalar_apache {
         Write-Host "Apache extraído en $extraerdestino"
         Remove-Item -Path $destinoZip -Force
 
-        # Configurar el puerto en httpd.conf
+        # Configurar SSL si el protocolo es HTTPS
+        if ($global:protocolo -eq "HTTPS") {
+            Write-Host "Configurando Apache para HTTPS..."
+
+            # Crear carpeta SSL si no existe
+            $sslDir = "$extraerdestino\conf\ssl"
+            if (-not (Test-Path $sslDir)) {
+                New-Item -ItemType Directory -Path $sslDir -Force | Out-Null
+            }
+
+            # Verificar si OpenSSL está instalado
+            $opensslPath = "C:\Program Files\OpenSSL-Win64\bin\openssl.exe"
+            if (-Not (Test-Path $opensslPath)) {
+                Write-Host "Error: OpenSSL no está instalado en la ruta esperada."
+                return
+            }
+
+            # Generar clave privada y certificado
+            Write-Host "Generando certificado SSL con OpenSSL..."
+            & $opensslPath req -x509 -nodes -days 365 -newkey rsa:2048 `
+                -keyout "$sslDir\server.key" -out "$sslDir\server.crt" `
+                -subj "/C=MX/ST=Sinaloa/L=LosMochis/O=Empresa/OU=IT/CN=localhost" 2>&1 | Out-Null
+
+            Write-Host "Certificado generado correctamente en $sslDir"
+        }
+
+        # Configurar httpd.conf
         $configFile = Join-Path $extraerdestino "conf\httpd.conf"
         if (Test-Path $configFile) {
-            (Get-Content $configFile) -replace "Listen 80", "Listen $global:puerto" | Set-Content $configFile
+            $confContent = Get-Content $configFile
+
+            # Descomentar módulos necesarios para SSL
+            $confContent = $confContent -replace "#\s*LoadModule ssl_module modules/mod_ssl.so", "LoadModule ssl_module modules/mod_ssl.so"
+            $confContent = $confContent -replace "#\s*LoadModule socache_shmcb_module modules/mod_socache_shmcb.so", "LoadModule socache_shmcb_module modules/mod_socache_shmcb.so"
+            $confContent = $confContent -replace "#\s*LoadModule headers_module modules/mod_headers.so", "LoadModule headers_module modules/mod_headers.so"
+
+            if ($global:protocolo -eq "HTTPS") {
+                # Si HTTPS está activado, eliminar cualquier "Listen" de httpd.conf
+                $confContent = $confContent -replace "(?m)^Listen \d+", ""
+
+                # Descomentar o agregar la línea para incluir httpd-ssl.conf
+                if ($confContent -match "#\s*Include conf/extra/httpd-ssl.conf") {
+                    $confContent = $confContent -replace "#\s*Include conf/extra/httpd-ssl.conf", "Include conf/extra/httpd-ssl.conf"
+                } elseif (-not ($confContent -match "Include conf/extra/httpd-ssl.conf")) {
+                    Add-Content -Path $configFile -Value "`nInclude conf/extra/httpd-ssl.conf"
+                }
+            } else {
+                # Si HTTPS no está activado, asegurarse de que Listen solo está en httpd.conf
+                $confContent = $confContent -replace "(?m)^Listen \d+", "Listen $global:puerto"
+            }
+
+            # Guardar cambios en httpd.conf
+            $confContent | Set-Content $configFile
             Write-Host "Configuración actualizada para escuchar en el puerto $global:puerto"
         } else {
             Write-Host "Error: No se encontró el archivo de configuración en $configFile"
             return
+        }
+
+        # Configurar httpd-ssl.conf si HTTPS está activado
+        if ($global:protocolo -eq "HTTPS") {
+            $sslConfFile = Join-Path $extraerdestino "conf\extra\httpd-ssl.conf"
+            if (Test-Path $sslConfFile) {
+                $sslContent = Get-Content $sslConfFile
+
+                # Asegurar que se usa el puerto correcto
+                $sslContent = $sslContent -replace "Listen \d+", "Listen $global:puerto"
+                $sslContent = $sslContent -replace "VirtualHost _default_:\d+", "VirtualHost _default_:$global:puerto"
+
+                # Asegurar rutas absolutas a los certificados
+                $sslContent = $sslContent -replace "SSLCertificateFile .*", "SSLCertificateFile `"$sslDir\server.crt`""
+                $sslContent = $sslContent -replace "SSLCertificateKeyFile .*", "SSLCertificateKeyFile `"$sslDir\server.key`""
+
+                # Guardar cambios en httpd-ssl.conf
+                $sslContent | Set-Content $sslConfFile
+                Write-Host "Configuración SSL actualizada en httpd-ssl.conf"
+            } else {
+                Write-Host "Error: No se encontró el archivo httpd-ssl.conf"
+                return
+            }
         }
 
         # Buscar el ejecutable de Apache
@@ -902,12 +974,22 @@ function instalar_apache {
             $exeApache = $apacheExe.FullName
             Write-Host "Instalando Apache como servicio..."
             Start-Process -FilePath $exeApache -ArgumentList '-k', 'install', '-n', 'Apache24' -NoNewWindow -Wait
-            Write-Host "Iniciando servicio Apache..."
-            Start-Service -Name "Apache24"
-            Write-Host "Apache instalado y ejecutándose en el puerto $global:puerto"
 
-            # Habilitar el puerto en el firewall al final de la instalación
-            habilitar_puerto_firewall
+            # Verificar la sintaxis antes de iniciar
+            Write-Host "Verificando sintaxis de Apache..."
+            $syntaxCheck = & $exeApache -t 2>&1
+            if ($syntaxCheck -match "Syntax OK") {
+                Write-Host "Sintaxis correcta, iniciando Apache..."
+                Start-Service -Name "Apache24"
+                Write-Host "Apache instalado y ejecutándose en el puerto $global:puerto"
+
+                # Habilitar el puerto en el firewall al final de la instalación
+                habilitar_puerto_firewall
+            } else {
+                Write-Host "Error de configuración en Apache:"
+                Write-Host $syntaxCheck
+                return
+            }
         } else {
             Write-Host "Error: No se encontró el ejecutable httpd.exe en $extraerdestino"
         }
@@ -1067,110 +1149,5 @@ function seleccionar_protocolo {
             Write-Host "Opción no válida. Intente de nuevo."
             seleccionar_protocolo
         }
-    }
-}
-
-function configurar_ssl {
-    # Asegurar que el servicio está definido
-    if (-not $global:servicio) {
-        Write-Host "Error: No se ha definido un servicio antes de generar el certificado SSL."
-        return
-    }
-
-    # Directorio donde se almacenará el certificado
-    $certDir = "C:\Certificados\$global:servicio"
-
-    Write-Host "Generando certificado SSL/TLS autofirmado para $global:servicio..."
-
-    # Crear el directorio si no existe
-    if (-not (Test-Path $certDir)) {
-        New-Item -ItemType Directory -Path $certDir -Force | Out-Null
-    }
-
-    # Definir rutas de los archivos del certificado
-    $pfxFile = "$certDir\server.pfx"
-    $crtFile = "$certDir\server.crt"
-    $keyFile = "$certDir\server.key"
-
-    # Generar un nuevo certificado autofirmado con clave exportable
-    $cert = New-SelfSignedCertificate -DnsName "localhost" -CertStoreLocation "Cert:\LocalMachine\My" `
-        -KeyExportPolicy Exportable -NotAfter (Get-Date).AddYears(1) `
-        -KeyAlgorithm RSA -KeyLength 2048
-
-    if (-not $cert) {
-        Write-Host "Error: No se pudo generar el certificado SSL."
-        return
-    }
-
-    # Exportar el certificado a formato .pfx con una contraseña
-    $password = ConvertTo-SecureString -String "1234" -Force -AsPlainText
-    Export-PfxCertificate -Cert "Cert:\LocalMachine\My\$($cert.Thumbprint)" -FilePath $pfxFile -Password $password
-
-    # Exportar el certificado a formato .crt (DER)
-    Export-Certificate -Cert "Cert:\LocalMachine\My\$($cert.Thumbprint)" -FilePath $crtFile -Type CERT
-
-    # Verificar si OpenSSL está instalado
-    $opensslPath = "C:\Program Files\OpenSSL-Win64\bin\openssl.exe"
-    if (-Not (Test-Path $opensslPath)) {
-        Write-Host "Error: OpenSSL no está instalado en la ruta esperada."
-        return
-    }
-
-    # **Convertir .pfx a .key usando OpenSSL**
-    if (Test-Path $pfxFile) {
-        Write-Host "Extrayendo clave privada con OpenSSL..."
-
-        # Extraer la clave privada sin contraseña en formato `.key`
-        Start-Process -FilePath $opensslPath -ArgumentList "pkcs12 -in `"$pfxFile`" -nocerts -nodes -out `"$keyFile`" -passin pass:1234" -NoNewWindow -Wait
-
-        # Convertir el certificado a formato `.crt` (PEM)
-        Start-Process -FilePath $opensslPath -ArgumentList "pkcs12 -in `"$pfxFile`" -clcerts -nokeys -out `"$crtFile`" -passin pass:1234" -NoNewWindow -Wait
-
-        Write-Host "Extracción de certificados completada."
-    } else {
-        Write-Host "Error: No se encontró el archivo .pfx."
-    }
-
-    # Verificar si los archivos se generaron correctamente
-    if (Test-Path $crtFile -and Test-Path $keyFile -and Test-Path $pfxFile) {
-        Write-Host "Certificado generado y exportado en: $certDir"
-    } else {
-        Write-Host "Error al generar el certificado SSL."
-    }
-}
-
-function generar_keystore {
-    param (
-        [string]$certDir = "C:\SSL\Tomcat",  # Directorio donde se guardará el keystore
-        [string]$keystorePass = "1234"       # Contraseña del keystore
-    )
-
-    $keystoreFile = "$certDir\keystore.p12"
-    $certFile = "$certDir\server.crt"
-    $keyFile = "$certDir\server.key"
-
-    # Crear directorio si no existe
-    if (-not (Test-Path $certDir)) {
-        New-Item -ItemType Directory -Path $certDir | Out-Null
-    }
-
-    Write-Host "Convirtiendo certificado SSL a formato PKCS12 para Tomcat..."
-
-    # Verificar si OpenSSL está disponible
-    $opensslPath = Get-Command openssl -ErrorAction SilentlyContinue
-    if (-not $opensslPath) {
-        Write-Host "Error: OpenSSL no está instalado o no está en el PATH."
-        return
-    }
-
-    # Ejecutar el comando OpenSSL para generar el keystore
-    $opensslCommand = "openssl pkcs12 -export -in `"$certFile`" -inkey `"$keyFile`" -out `"$keystoreFile`" -name tomcat -password pass:$keystorePass"
-    Invoke-Expression -Command $opensslCommand
-
-    # Verificar si se generó correctamente
-    if (Test-Path $keystoreFile) {
-        Write-Host "Keystore generado en: $keystoreFile"
-    } else {
-        Write-Host "Error: No se pudo generar el keystore."
     }
 }
