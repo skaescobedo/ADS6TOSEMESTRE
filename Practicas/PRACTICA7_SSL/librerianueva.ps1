@@ -1452,6 +1452,8 @@ function instalar_apache_ftp {
     }
 }
 
+
+
 function instalar_tomcat_ftp {
     Write-Host "`n============================================"
     Write-Host "   Instalando Apache Tomcat desde FTP...   "
@@ -1527,37 +1529,60 @@ function instalar_tomcat_ftp {
         if ($global:protocolo -eq "HTTPS") {
             Write-Host "Configurando SSL en Tomcat..."
 
-            # Ruta para almacenar keystore
-            $sslDir = "$extraerDestino\conf"
-            $keystorePath = "$sslDir\keystore.jks"
-            $keystorePass = "changeit"
+            # Si la versión es "apache-tomcat-9.0.102-windows-x64.zip", seguir un flujo especial
+            if ($global:version -eq "apache-tomcat-9.0.102-windows-x64.zip") {
+                Write-Host "Detectada versión 9.0.102, aplicando configuración especial para SSL..."
 
-            # Verificar si keytool existe
-            $keytoolPath = "$jdkInstallPath\bin\keytool.exe"
-            if (-not (Test-Path $keytoolPath)) {
-                Write-Host "Error: No se encontró keytool.exe en $keytoolPath"
-                return
-            }
+                # Ruta para almacenar keystore
+                $sslDir = "$extraerDestino\conf"
+                $keystorePath = "$sslDir\keystore.p12"
+                $keystorePass = "changeit"
 
-            Write-Host "Generando certificado SSL autofirmado..."
-            $sslCommand = "& `"$keytoolPath`" -genkeypair -alias tomcat -keyalg RSA -keysize 2048 -validity 365 -keystore `"$keystorePath`" -storepass `"$keystorePass`" -dname `"CN=localhost, OU=IT, O=Empresa, L=LosMochis, ST=Sinaloa, C=MX`"" 
+                # Verificar si keytool existe
+                $keytoolPath = "$jdkInstallPath\bin\keytool.exe"
+                if (-not (Test-Path $keytoolPath)) {
+                    Write-Host "Error: No se encontró keytool.exe en $keytoolPath"
+                    return
+                }
 
-            # Ejecutar y capturar salida de keytool
-            $sslOutput = Invoke-Expression $sslCommand 2>&1
-            if ($sslOutput -match "Exception" -or $sslOutput -match "Error") {
-                Write-Host "Error al generar el certificado SSL: $sslOutput"
-                return
-            }
+                Write-Host "Generando certificado SSL en formato PKCS12..."
+                Start-Process -FilePath $keytoolPath -ArgumentList `
+                    "-genkeypair -alias tomcat -keyalg RSA -keysize 2048 -validity 365 -keystore `"$keystorePath`" -storepass `"$keystorePass`" -storetype PKCS12 -dname `"CN=localhost, OU=IT, O=Empresa, L=LosMochis, ST=Sinaloa, C=MX`"" `
+                    -NoNewWindow -Wait
 
-            # Modificar server.xml para que solo use HTTPS
-            Write-Host "Modificando server.xml para habilitar HTTPS..."
-            $serverConfig = Get-Content $configFile
+                # Modificar server.xml correctamente
+                $serverConfig = Get-Content $configFile
+                $serverConfig = $serverConfig -replace '<Connector port="8080".*?>', ""
 
-            # Eliminar conector HTTP si existe
-            $serverConfig = $serverConfig -replace '<Connector port="8080".*?>', ""
+                $sslConfig = @"
+<Connector port="$global:puerto" protocol="org.apache.coyote.http11.Http11NioProtocol"
+           SSLEnabled="true" maxThreads="200"
+           scheme="https" secure="true"
+           sslProtocol="TLS"
+           keystoreFile="C:/Tomcat/conf/keystore.p12"
+           keystorePass="$keystorePass"
+           keystoreType="PKCS12"
+           keyAlias="tomcat"/>
+"@
 
-            # Agregar conector HTTPS con keystore
-            $sslConfig = @"
+                $serverConfig = $serverConfig -replace '(</Service>)', "$sslConfig`n`$1"
+                $serverConfig | Set-Content $configFile
+                Write-Host "SSL configurado correctamente en Tomcat 9.0.102."
+
+            } else {
+                # Flujo normal para versiones superiores
+                Write-Host "Configurando SSL en Tomcat..."
+                $keystorePath = "$extraerDestino\conf\keystore.jks"
+                $keystorePass = "changeit"
+
+                # Generar certificado autofirmado
+                $sslCommand = "& `"$jdkInstallPath\bin\keytool.exe`" -genkeypair -alias tomcat -keyalg RSA -keysize 2048 -validity 365 -keystore `"$keystorePath`" -storepass `"$keystorePass`" -dname `"CN=localhost, OU=IT, O=Empresa, L=LosMochis, ST=Sinaloa, C=MX`""
+                Invoke-Expression $sslCommand
+                Write-Host "Certificado generado en $keystorePath"
+
+                # Modificar server.xml para agregar el conector HTTPS
+                $serverConfig = Get-Content $configFile
+                $sslConfig = @"
 <Connector port="$global:puerto" protocol="org.apache.coyote.http11.Http11NioProtocol"
            SSLEnabled="true" maxThreads="200"
            scheme="https" secure="true"
@@ -1569,17 +1594,13 @@ function instalar_tomcat_ftp {
     </SSLHostConfig>
 </Connector>
 "@
-
-            # Insertar configuración SSL antes de </Service>
-            $serverConfig = $serverConfig -replace '(</Service>)', "$sslConfig`n`$1"
-            $serverConfig | Set-Content $configFile
-            Write-Host "SSL configurado correctamente en Tomcat."
-        } else {
-            Write-Host "Configurando Tomcat en HTTP..."
-            (Get-Content $configFile) -replace 'Connector port="8080"', "Connector port=`"$global:puerto`"" | Set-Content $configFile
+                $serverConfig = $serverConfig -replace '(</Service>)', "$sslConfig`n`$1"
+                $serverConfig | Set-Content $configFile
+                Write-Host "SSL configurado correctamente en Tomcat."
+            }
         }
 
-        # Registrar Tomcat como servicio correctamente
+         # Registrar Tomcat como servicio correctamente
         $tomcatService = "$extraerDestino\bin\service.bat"
         if (Test-Path $tomcatService) {
             Write-Host "Registrando Tomcat como servicio..."
