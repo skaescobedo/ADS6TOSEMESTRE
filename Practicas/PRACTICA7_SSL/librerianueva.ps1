@@ -697,22 +697,84 @@ function instalar_dependencias {
     Write-Host "   Verificando e instalando dependencias...   "
     Write-Host "============================================"
 
-    # Verificar e instalar Visual C++ Redistributable
-    Write-Host "`nVerificando Visual C++ Redistributable..."
+    # Verificar e instalar Visual C++ Redistributable 2015-2022 (VS17)
+    Write-Host "`nVerificando Visual C++ Redistributable 2015-2022..."
 
     $vcInstalled = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" | 
                    Get-ItemProperty | 
                    Where-Object { $_.DisplayName -match "Visual C\+\+ (2015|2017|2019|2022) Redistributable" }
 
     if ($vcInstalled) {
-        Write-Host "Visual C++ Redistributable ya está instalado."
+        Write-Host "Visual C++ Redistributable 2015-2022 ya está instalado."
     } else {
-        Write-Host "Falta Visual C++. Descargando e instalando..."
+        Write-Host "Falta Visual C++ 2015-2022. Descargando e instalando..."
         $vcUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
         $vcInstaller = "$env:TEMP\vc_redist.x64.exe"
         Invoke-WebRequest -Uri $vcUrl -OutFile $vcInstaller
         Start-Process -FilePath $vcInstaller -ArgumentList "/install /quiet /norestart" -NoNewWindow -Wait
-        Write-Host "Visual C++ Redistributable instalado correctamente."
+        Write-Host "Visual C++ 2015-2022 instalado correctamente."
+    }
+
+    # Verificar e instalar Visual C++ 2012 Redistributable (VC11)
+    Write-Host "`nVerificando Visual C++ Redistributable 2012 (VC11)..."
+
+    $vc2012Installed = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" | 
+                       Get-ItemProperty | 
+                       Where-Object { $_.DisplayName -match "Visual C\+\+ 2012 Redistributable" }
+
+    if ($vc2012Installed) {
+        Write-Host "Visual C++ 2012 Redistributable ya está instalado."
+    } else {
+        Write-Host "Falta Visual C++ 2012. Descargando e instalando..."
+        $vc2012Url = "https://download.microsoft.com/download/1/6/B/16B06F60-3B20-4FF2-B699-5E9B7962F9AE/VSU_4/vcredist_x64.exe"
+        $vc2012Installer = "$env:TEMP\vcredist_x64_2012.exe"
+        Invoke-WebRequest -Uri $vc2012Url -OutFile $vc2012Installer
+        Start-Process -FilePath $vc2012Installer -ArgumentList "/install /quiet /norestart" -NoNewWindow -Wait
+        Write-Host "Visual C++ 2012 Redistributable instalado correctamente."
+    }
+    
+    # Verificar e instalar OpenSSL
+    Write-Host "`nVerificando OpenSSL..."
+
+    $opensslInstallPath = "C:\Program Files\OpenSSL-Win64"
+
+    if (Test-Path "$opensslInstallPath\bin\openssl.exe") {
+        Write-Host "OpenSSL ya está instalado en: $opensslInstallPath"
+    } else {
+        Write-Host "Falta OpenSSL. Descargando e instalando..."
+        $opensslUrl = "https://slproweb.com/download/Win64OpenSSL_Light-3_4_1.exe"
+        $opensslInstaller = "$env:TEMP\Win64OpenSSL_Light.exe"
+
+        Invoke-WebRequest -Uri $opensslUrl -OutFile $opensslInstaller
+        Start-Process -FilePath $opensslInstaller -ArgumentList "/silent" -NoNewWindow -Wait
+        Write-Host "OpenSSL instalado correctamente."
+    }
+
+    # Configurar OPENSSL_HOME y agregar al PATH
+    Write-Host "`nConfigurando OPENSSL_HOME y PATH..."
+
+    [System.Environment]::SetEnvironmentVariable("OPENSSL_HOME", $opensslInstallPath, [System.EnvironmentVariableTarget]::Machine)
+
+    # Obtener el PATH actual del sistema y asegurarse de que OpenSSL está en él
+    $currentPath = [System.Environment]::GetEnvironmentVariable("Path", [System.EnvironmentVariableTarget]::Machine)
+    if ($currentPath -notlike "*$opensslInstallPath\bin*") {
+        $newPath = "$currentPath;$opensslInstallPath\bin"
+        [System.Environment]::SetEnvironmentVariable("Path", $newPath, [System.EnvironmentVariableTarget]::Machine)
+    }
+
+    # Refrescar variables de entorno en la sesión actual
+    $env:OPENSSL_HOME = $opensslInstallPath
+    $env:Path = "$env:Path;$opensslInstallPath\bin"
+
+    Write-Host "OPENSSL_HOME configurado correctamente en: $env:OPENSSL_HOME"
+
+    # Verificar que OpenSSL funciona
+    Write-Host "`nVerificando instalación de OpenSSL..."
+    $opensslVersion = & "$opensslInstallPath\bin\openssl.exe" version 2>&1
+    if ($opensslVersion -match "OpenSSL 3\.") {
+        Write-Host "Configuración correcta: `n$opensslVersion"
+    } else {
+        Write-Host "Error: OpenSSL no está configurado correctamente."
     }
 
     # Verificar e instalar Amazon Corretto JDK 21
@@ -1570,18 +1632,35 @@ function instalar_tomcat_ftp {
                 Write-Host "SSL configurado correctamente en Tomcat 9.0.102."
 
             } else {
-                # Flujo normal para versiones superiores
-                Write-Host "Configurando SSL en Tomcat..."
-                $keystorePath = "$extraerDestino\conf\keystore.jks"
+                # Ruta para almacenar keystore
+                $sslDir = "$extraerDestino\conf"
+                $keystorePath = "$sslDir\keystore.jks"
                 $keystorePass = "changeit"
 
-                # Generar certificado autofirmado
-                $sslCommand = "& `"$jdkInstallPath\bin\keytool.exe`" -genkeypair -alias tomcat -keyalg RSA -keysize 2048 -validity 365 -keystore `"$keystorePath`" -storepass `"$keystorePass`" -dname `"CN=localhost, OU=IT, O=Empresa, L=LosMochis, ST=Sinaloa, C=MX`""
-                Invoke-Expression $sslCommand
-                Write-Host "Certificado generado en $keystorePath"
+                # Verificar si keytool existe
+                $keytoolPath = "$jdkInstallPath\bin\keytool.exe"
+                if (-not (Test-Path $keytoolPath)) {
+                    Write-Host "Error: No se encontró keytool.exe en $keytoolPath"
+                    return
+                }
 
-                # Modificar server.xml para agregar el conector HTTPS
+                Write-Host "Generando certificado SSL autofirmado..."
+                $sslCommand = "& `"$keytoolPath`" -genkeypair -alias tomcat -keyalg RSA -keysize 2048 -validity 365 -keystore `"$keystorePath`" -storepass `"$keystorePass`" -dname `"CN=localhost, OU=IT, O=Empresa, L=LosMochis, ST=Sinaloa, C=MX`"" 
+
+                # Ejecutar y capturar salida de keytool
+                $sslOutput = Invoke-Expression $sslCommand 2>&1
+                if ($sslOutput -match "Exception" -or $sslOutput -match "Error") {
+                    Write-Host "Error al generar el certificado SSL: $sslOutput"
+                    return
+                }
+                # Modificar server.xml para que solo use HTTPS
+                Write-Host "Modificando server.xml para habilitar HTTPS..."
                 $serverConfig = Get-Content $configFile
+
+                # Eliminar conector HTTP si existe
+                $serverConfig = $serverConfig -replace '<Connector port="8080".*?>', ""
+
+                # Agregar conector HTTPS con keystore
                 $sslConfig = @"
 <Connector port="$global:puerto" protocol="org.apache.coyote.http11.Http11NioProtocol"
            SSLEnabled="true" maxThreads="200"
@@ -1594,6 +1673,8 @@ function instalar_tomcat_ftp {
     </SSLHostConfig>
 </Connector>
 "@
+
+                # Insertar configuración SSL antes de </Service>
                 $serverConfig = $serverConfig -replace '(</Service>)', "$sslConfig`n`$1"
                 $serverConfig | Set-Content $configFile
                 Write-Host "SSL configurado correctamente en Tomcat."
