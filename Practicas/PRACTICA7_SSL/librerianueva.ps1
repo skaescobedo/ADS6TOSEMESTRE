@@ -28,16 +28,23 @@ function Crear-Sitio-FTP {
     $ftpSiteName = "FTP"
     $ftpRootPath = "C:\FTP"
 
+    # Determinar el puerto según si SSL está habilitado o no
+    if ($habilitarSSL -eq "s") {
+        $ftpPort = 990  # Puerto predeterminado para FTPS
+    } else {
+        $ftpPort = 21   # Puerto predeterminado para FTP
+    }
+
     # Verificar si el sitio ya existe
     if (-not (Get-WebSite -Name $ftpSiteName)) {
-        New-WebFtpSite -Name $ftpSiteName -Port 21 -PhysicalPath $ftpRootPath -Force
-        Write-Host "Sitio FTP creado exitosamente en IIS." -ForegroundColor Green
+        New-WebFtpSite -Name $ftpSiteName -Port $ftpPort -PhysicalPath $ftpRootPath -Force
+        Write-Host "Sitio FTP creado exitosamente en IIS en el puerto $ftpPort." -ForegroundColor Green
     } else {
         Write-Host "El sitio FTP ya existe." -ForegroundColor Yellow
     }
 
     # Abrir los puertos necesarios en el firewall
-    New-NetFirewallRule -DisplayName "FTP (21)" -Direction Inbound -Protocol TCP -LocalPort 21 -Action Allow
+    New-NetFirewallRule -DisplayName "FTP/FTPS ($ftpPort)" -Direction Inbound -Protocol TCP -LocalPort $ftpPort -Action Allow
     New-NetFirewallRule -DisplayName "FTP Passive Mode (49152-65535)" -Direction Inbound -Protocol TCP -LocalPort 49152-65535 -Action Allow
 
     # Si el usuario eligió habilitar SSL, configurar TLS

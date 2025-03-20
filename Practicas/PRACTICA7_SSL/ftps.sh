@@ -9,13 +9,12 @@ mostrar_menu() {
     echo "==========================================="
     echo "   Menú de Configuración del Servidor FTP   "
     echo "==========================================="
-    echo "1) Instalar dependencias, configurar vsftpd y firewall"
-    echo "2) Crear estructura de directorios"
-    echo "3) Crear usuario"
-    echo "4) Eliminar usuario"                
-    echo "5) Salir"
+    echo "1) Instalar FTP COMPLETO"
+    echo "2) Crear usuario"
+    echo "3) Eliminar usuario"                
+    echo "4) Salir"
     echo "==========================================="
-    echo -n "Seleccione una opción [1-5]: "
+    echo -n "Seleccione una opción [1-4]: "
 }
 
 # Flujo principal
@@ -28,30 +27,34 @@ while true; do
             echo "Instalando dependencias, configurando vsftpd y configurando firewall..."
             instalar_dependencias_ftp
 
-            # Preguntar si se desea habilitar SSL antes de configurar vsftpd
-            read -p "¿Desea habilitar SSL para FTPS? (s/n): " respuesta_ssl
+           # Preguntar si se desea habilitar SSL antes de configurar vsftpd
+            while true; do
+                read -p "¿Desea habilitar SSL para FTPS? (s/n): " respuesta_ssl
+                respuesta_ssl=$(echo "$respuesta_ssl" | tr '[:upper:]' '[:lower:]')  # Convertir a minúsculas
+
+                if [[ "$respuesta_ssl" == "s" || "$respuesta_ssl" == "n" ]]; then
+                    break  # Salir del bucle si la respuesta es válida
+                else
+                    echo "Por favor, ingrese 's' para sí o 'n' para no."
+                fi
+            done
 
             configurar_vsftpd "$respuesta_ssl"
-            configurar_firewall_y_vsftpd
+            crear_estructura_directorios
 
             read -p "Presione cualquier tecla para continuar..." -n 1 -s
             ;;
         2)
-            echo "Creando estructura de directorios..."
-            crear_estructura_directorios
-            read -p "Presione cualquier tecla para continuar..." -n 1 -s
-            ;;
-        3)
             echo "Creando usuario..."
             crear_usuario
             read -p "Presione cualquier tecla para continuar..." -n 1 -s
             ;;
-        4)
+        3)
             echo "Eliminando usuario..."
             eliminar_usuario    
             read -p "Presione cualquier tecla para continuar..." -n 1 -s
             ;;
-        5)
+        4)
             echo "Saliendo..."
             break
             ;;

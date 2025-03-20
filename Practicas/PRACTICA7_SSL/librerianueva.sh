@@ -9,10 +9,17 @@ instalar_dependencias_ftp() {
 configurar_vsftpd() {
     local respuesta_ssl=$1  # Recibe la variable como argumento
 
-    echo "Configurando vsftpd..."
+    # Determinar el puerto según la elección del usuario
+    if [[ "$respuesta_ssl" == "s" || "$respuesta_ssl" == "S" ]]; then
+        ftp_port=990  # Puerto FTPS implícito
+    else
+        ftp_port=21   # Puerto FTP normal
+    fi
+
+    echo "Configurando vsftpd en el puerto $ftp_port..."
     sudo cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
 
-    sudo bash -c 'cat > /etc/vsftpd.conf' <<EOF
+    sudo bash -c "cat > /etc/vsftpd.conf" <<EOF
 anonymous_enable=YES
 anon_root=/srv/ftp/anon
 anon_upload_enable=NO
@@ -43,15 +50,36 @@ pasv_min_port=40000
 pasv_max_port=50000
 
 ftpd_banner=Bienvenido al servidor FTP.
+
+listen_port=$ftp_port
 EOF
 
     # Si el usuario eligió "s", configurar SSL
     if [[ "$respuesta_ssl" == "s" || "$respuesta_ssl" == "S" ]]; then
         configurar_ssl_vsftpd
+        echo "FTPS habilitado en el puerto $ftp_port."
     else
-        echo "SSL no ha sido configurado. El servidor continuará funcionando sin FTPS."
+        echo "SSL no ha sido configurado. El servidor FTP usará el puerto $ftp_port."
     fi
+
+    # Llamar a la función para configurar firewall y reiniciar vsftpd
+    configurar_firewall_y_vsftpd "$ftp_port"
 }
+
+# Configurar firewall y reiniciar vsftpd
+configurar_firewall_y_vsftpd() {
+    local ftp_port=$1  # Recibe el puerto como argumento
+    echo "Configurando firewall para el puerto $ftp_port..."
+    
+    sudo ufw allow 20/tcp
+    sudo ufw allow "$ftp_port"/tcp
+    sudo ufw allow 40000:50000/tcp
+
+    sudo systemctl restart vsftpd
+    sudo ufw enable
+    echo "Firewall configurado y vsftpd reiniciado."
+}
+
 
 crear_estructura_directorios() {
     FTP_ROOT="/srv/ftp"
@@ -150,17 +178,6 @@ crear_usuario() {
 
         sudo chmod 750 $FTP_ROOT/autenticados/$username
     done
-}
-
-# Configurar firewall y reiniciar vsftpd
-configurar_firewall_y_vsftpd() {
-    echo "Configurando firewall..."
-    sudo ufw allow 20/tcp
-    sudo ufw allow 21/tcp
-    sudo ufw allow 40000:50000/tcp
-
-    sudo systemctl restart vsftpd
-    sudo ufw enable
 }
 
 # Función para validar el nombre de usuario
@@ -354,6 +371,7 @@ configurar_ssl_vsftpd() {
 
 # Configuración SSL habilitada
 ssl_enable=YES
+implicit_ssl=YES
 rsa_cert_file=/etc/ssl/certs/vsftpd.crt
 rsa_private_key_file=/etc/ssl/private/vsftpd.key
 allow_anon_ssl=YES
@@ -369,7 +387,7 @@ EOF
     echo "Reiniciando vsftpd..."
     sudo systemctl restart vsftpd
 
-    echo "SSL ha sido configurado correctamente en el servidor FTP."
+    echo "SSL ha sido configurado correctamente en el servidor FTP con FTPS en el puerto 990."
 }
 
 #--------------------------------------------------------------------------------

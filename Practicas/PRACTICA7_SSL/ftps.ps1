@@ -28,8 +28,10 @@ function Menu-Principal {
                 Instalar-Caracteristicas
                 Crear-Estructura-FTP
 
-                # Preguntar si se desea habilitar SSL antes de configurar el sitio FTP
-                $respuestaSSL = Read-Host "¿Desea habilitar SSL para FTPS? (s/n)"
+                do {
+                    $respuestaSSL = Read-Host "¿Desea habilitar SSL para FTPS? (s/n)"
+                    $respuestaSSL = $respuestaSSL.ToLower()
+                } while ($respuestaSSL -ne "s" -and $respuestaSSL -ne "n")
 
                 Crear-Sitio-FTP -habilitarSSL $respuestaSSL
                 Configurar-UserIsolation
