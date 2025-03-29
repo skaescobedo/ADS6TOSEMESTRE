@@ -1130,7 +1130,7 @@ generar_keystore() {
 # Configuración del servidor FTP
 FTP_SERVER="192.168.1.128"  # Cambia por la IP de tu servidor
 FTP_USER="linux"            # O "windows" según corresponda
-FTP_PASS="123"              # Contraseña
+FTP_PASS="1234"              # Contraseña
 
 seleccionar_version_ftp() {
     local carpeta_ftp
@@ -1146,7 +1146,7 @@ seleccionar_version_ftp() {
     echo "Conectando al servidor FTP para listar versiones de $servicio..."
 
     # Obtener la lista de versiones disponibles en la carpeta FTP
-    versiones_disponibles=$(curl -s --user "$FTP_USER:$FTP_PASS" "ftp://$FTP_SERVER/$carpeta_ftp/" | awk '{print $NF}' | grep -E '^(apache-tomcat-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz|nginx-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz|httpd-[0-9]+\.[0-9]+(\.[0-9]+)?\.tar\.gz)$')
+    versiones_disponibles=$(curl -s --user "$FTP_USER:$FTP_PASS" "ftp://$FTP_SERVER/linux/$carpeta_ftp/" | awk '{print $NF}' | grep -E '^(apache-tomcat-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz|nginx-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz|httpd-[0-9]+\.[0-9]+(\.[0-9]+)?\.tar\.gz)$')
 
     # Verificar si se encontraron archivos
     if [[ -z "$versiones_disponibles" ]]; then
@@ -1208,7 +1208,7 @@ proceso_instalacion_ftp() {
 instalar_apache_ftp() {
     echo "Descargando e instalando Apache versión $version desde el servidor FTP..."
 
-    FTP_PATH="apache"  # Se eliminó 'linux/'
+    FTP_PATH="linux/apache"  # Se eliminó 'linux/'
 
     # Descargar Apache desde el FTP usando las constantes globales
     wget --ftp-user="$FTP_USER" --ftp-password="$FTP_PASS" "ftp://$FTP_SERVER/$FTP_PATH/$version" -O "/tmp/$version"
@@ -1320,7 +1320,7 @@ EOF
 instalar_tomcat_ftp() {
     echo "Descargando e instalando Tomcat versión $version desde el servidor FTP..."
 
-    FTP_PATH="tomcat"  # Se eliminó 'linux/'
+    FTP_PATH="linux/tomcat"  # Se eliminó 'linux/'
 
     # Descargar Tomcat desde el FTP usando las constantes globales
     wget --ftp-user="$FTP_USER" --ftp-password="$FTP_PASS" "ftp://$FTP_SERVER/$FTP_PATH/$version" -O "/tmp/$version"
@@ -1381,7 +1381,7 @@ instalar_tomcat_ftp() {
 instalar_nginx_ftp() {
     echo "Descargando e instalando NGINX versión $version desde el servidor FTP..."
 
-    FTP_PATH="nginx"  # Se eliminó 'linux/'
+    FTP_PATH="linux/nginx"  # Se eliminó 'linux/'
 
     # Descargar NGINX desde el FTP usando las constantes globales
     wget --ftp-user="$FTP_USER" --ftp-password="$FTP_PASS" "ftp://$FTP_SERVER/$FTP_PATH/$version" -O "/tmp/$version"
