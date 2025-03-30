@@ -73,7 +73,6 @@ sudo bash -c "cat > $DNS_ZONE_FILE" <<EOF
 @       IN  NS  localhost.
 @       IN  A   192.168.1.10
 www     IN  A   192.168.1.10
-webserv IN  A   192.168.1.102
 EOF
 
 echo "[INFO] Archivo de zona creado correctamente."

@@ -20,7 +20,8 @@ read -p "Ingrese el número de usuarios que desea crear: " numeroUsuarios
 for ((i = 1; i <= numeroUsuarios; i++)); do
     read -p "Ingrese el nombre de usuario $i: " nombreUsuario
     sudo adduser "${nombreUsuario}"
-    sudo su - "${nombreUsuario}" -c "maildirmake Maildir"
+    sudo mkdir -p /home/${nombreUsuario}/Maildir/{new,cur,tmp}
+    sudo chown -R ${nombreUsuario}:${nombreUsuario} /home/${nombreUsuario}/Maildir
 done
 
 # Instala cliente BSD Mailx (opcional para pruebas en terminal)
@@ -60,14 +61,24 @@ echo "smtpd_sasl_path = private/auth" | sudo tee -a /etc/postfix/main.cf
 echo "smtpd_tls_auth_only = no" | sudo tee -a /etc/postfix/main.cf
 echo "smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination" | sudo tee -a /etc/postfix/main.cf
 
-# Configura el socket de autenticación en Dovecot
-sudo sed -i '/unix_listener \/var\/spool\/postfix\/private\/auth/,/^}/d' /etc/dovecot/conf.d/10-master.conf
-sudo sed -i '/service auth {/a\
-  unix_listener /var/spool/postfix/private/auth {\n\
-    mode = 0660\n\
-    user = postfix\n\
-    group = postfix\n\
-  }' /etc/dovecot/conf.d/10-master.conf
+# Configura el socket de autenticación en Dovecot (reemplaza bloque previo si existe)
+sudo sed -i '/service auth {/,/^}/d' /etc/dovecot/conf.d/10-master.conf
+echo "service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+
+  unix_listener auth-userdb {
+    #mode = 0666
+    #user =
+    #group =
+  }
+}
+
+service auth-worker {
+}" | sudo tee -a /etc/dovecot/conf.d/10-master.conf
 
 # Reinicia Dovecot y Postfix
 sudo systemctl restart dovecot
@@ -80,14 +91,21 @@ echo "smtp IN  CNAME   servidor" | sudo tee -a /etc/bind/zonas/db.reprobados.com
 echo "correo  IN   CNAME   servidor" | sudo tee -a /etc/bind/zonas/db.reprobados.com
 sudo systemctl restart bind9
 
-# Instala SquirrelMail y sus dependencias
-sudo apt-get install squirrelmail -y
+# INSTALA SQUIRRELMAIL MANUALMENTE (porque ya no está en los repos oficiales)
+cd /usr/share
+sudo wget https://downloads.sourceforge.net/project/squirrelmail/squirrelmail-stable/1.4.22/squirrelmail-1.4.22.tar.gz
+sudo tar -xzvf squirrelmail-1.4.22.tar.gz
+sudo mv squirrelmail-1.4.22 squirrelmail
+sudo chown -R www-data:www-data /usr/share/squirrelmail
+sudo chmod -R 755 /usr/share/squirrelmail
 
-# Copia archivos al directorio público de Apache
+# Crea el enlace simbólico en Apache
 sudo ln -s /usr/share/squirrelmail /var/www/html/squirrelmail
 
 # Configura Apache para permitir acceso
-echo "<Directory /var/www/html/squirrelmail>
+echo "<Directory /usr/share/squirrelmail>
+    Options Indexes FollowSymLinks
+    AllowOverride All
     Require all granted
 </Directory>" | sudo tee /etc/apache2/conf-available/squirrelmail.conf
 
