@@ -1,115 +1,105 @@
-# Función para validar el nombre de usuario
-validar_nombre_usuario() {
-    nombre_usuario=$1
+#!/bin/bash
 
-    # Verificar que no esté vacío
-    if [[ -z "$nombre_usuario" ]]; then
-        echo "El nombre de usuario está vacío."
-        return 1
-    fi
+# Establece el nombre de host del sistema
+sudo hostnamectl set-hostname reprobados.com
 
-    # Verificar longitud máxima
-    if [[ ${#nombre_usuario} -gt 32 ]]; then
-        echo "El nombre de usuario es demasiado largo (máximo 32 caracteres)."
-        return 1
-    fi
+# Actualiza la lista de paquetes
+sudo apt-get update -y
 
-    # Verificar que no empiece con un número
-    if [[ "$nombre_usuario" =~ ^[0-9] ]]; then
-        echo "El nombre de usuario no puede comenzar con un número."
-        return 1
-    fi
+# Instala Postfix (SMTP)
+sudo apt-get install postfix -y
 
-    # Verificar que no empiece con un guion
-    if [[ "$nombre_usuario" =~ ^- ]]; then
-        echo "El nombre de usuario no puede comenzar con un guion ('-')."
-        return 1
-    fi
+# Instala Apache2 (necesario para SquirrelMail)
+sudo apt-get install apache2 -y
 
-    # Verificar que no empiece con un punto
-    if [[ "$nombre_usuario" =~ ^\. ]]; then
-        echo "El nombre de usuario no puede comenzar con un punto ('.')."
-        return 1
-    fi
+# Muestra el nombre de correo del sistema
+cat /etc/mailname
 
-    # Verificar caracteres permitidos (solo letras, números, guion bajo, guion, y punto en medio o al final)
-    if [[ "$nombre_usuario" =~ [^a-zA-Z0-9._-] ]]; then
-        echo "El nombre de usuario contiene caracteres no permitidos."
-        return 1
-    fi
+# Crea usuarios
+read -p "Ingrese el número de usuarios que desea crear: " numeroUsuarios
+for ((i = 1; i <= numeroUsuarios; i++)); do
+    read -p "Ingrese el nombre de usuario $i: " nombreUsuario
+    sudo adduser "${nombreUsuario}"
+    sudo su - "${nombreUsuario}" -c "maildirmake Maildir"
+done
 
-    # Verificar que no contenga espacios
-    if [[ "$nombre_usuario" =~ [[:space:]] ]]; then
-        echo "El nombre de usuario no puede contener espacios."
-        return 1
-    fi
+# Instala cliente BSD Mailx (opcional para pruebas en terminal)
+sudo apt-get install bsd-mailx -y
 
-    # Verificar que no sea un nombre reservado
-    nombres_reservados=("root" "admin" "bin" "daemon" "www-data" "ftp" "syslog" "messagebus")
-    for nombre_reservado in "${nombres_reservados[@]}"; do
-        if [[ "$nombre_usuario" == "$nombre_reservado" ]]; then
-            echo "El nombre de usuario '$nombre_usuario' es un nombre reservado del sistema."
-            return 1
-        fi
-    done
+# Instala Dovecot para POP3 e IMAP
+sudo apt-get install dovecot-pop3d dovecot-imapd -y
 
-    # Verificar si el nombre de usuario ya existe
-    if getent passwd "$nombre_usuario" > /dev/null 2>&1; then
-        echo "El nombre de usuario '$nombre_usuario' ya existe en el sistema."
-        return 1
-    fi
+# Muestra configuración de red
+ip a
 
-    echo "El nombre de usuario '$nombre_usuario' es válido."
-    return 0
-}
+# Configura subred permitida en Postfix
+echo 'Ingrese la familia de la subred (ej. 192.168.10.0):'
+read SubnetIP
+sudo sed -i "s/^mynetworks = .*/mynetworks = 127.0.0.0\/8 [::ffff:127.0.0.0]\/104 [::1]\/128 ${SubnetIP}\/24/" /etc/postfix/main.cf
 
-instalar_y_verificar_postfix() {
-    echo "Instalando Postfix..."
-    sudo apt update && sudo apt install postfix -y
+# Entrega de correo en formato Maildir
+echo "home_mailbox = Maildir/" | sudo tee -a /etc/postfix/main.cf
+echo "mailbox_command =" | sudo tee -a /etc/postfix/main.cf
 
-    if [[ $? -ne 0 ]]; then
-        echo "Error al instalar Postfix."
-        return 1
-    fi
+# Reinicia Postfix
+sudo systemctl reload postfix
+sudo systemctl restart postfix
 
-    echo "Verificando estado del servicio Postfix..."
-    estado=$(systemctl is-active postfix)
+# Habilita autenticación en texto plano en Dovecot (solo para pruebas internas)
+sudo sed -i 's/^#disable_plaintext_auth = yes/disable_plaintext_auth = no/' /etc/dovecot/conf.d/10-auth.conf
 
-    if [[ "$estado" == "active" ]]; then
-        echo "Postfix está activo y funcionando correctamente."
-        return 0
-    else
-        echo "Postfix no está activo. Intentando iniciarlo..."
-        sudo systemctl start postfix
-        sudo systemctl enable postfix
+# Configura almacenamiento Maildir
+sudo sed -i 's/^#   mail_location = maildir:~\/Maildir/    mail_location = maildir:~\/Maildir/' /etc/dovecot/conf.d/10-mail.conf
+sudo sed -i 's/^mail_location = mbox:~\/mail:INBOX=\/var\/mail\/%u/#mail_location = mbox:~\/mail:INBOX=\/var\/mail\/%u/' /etc/dovecot/conf.d/10-mail.conf
 
-        estado_postfix=$(systemctl is-active postfix)
-        if [[ "$estado_postfix" == "active" ]]; then
-            echo "Postfix ha sido iniciado correctamente."
-            return 0
-        else
-            echo "No se pudo iniciar Postfix."
-            return 1
-        fi
-    fi
-}
+# Configura integración Dovecot-SASL para Postfix (envío autenticado)
+sudo sed -i '/^smtpd_sasl_auth_enable/ d' /etc/postfix/main.cf
+echo "smtpd_sasl_auth_enable = yes" | sudo tee -a /etc/postfix/main.cf
+echo "smtpd_sasl_type = dovecot" | sudo tee -a /etc/postfix/main.cf
+echo "smtpd_sasl_path = private/auth" | sudo tee -a /etc/postfix/main.cf
+echo "smtpd_tls_auth_only = no" | sudo tee -a /etc/postfix/main.cf
+echo "smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination" | sudo tee -a /etc/postfix/main.cf
 
-crear_usuario_sistema() {
-    nombre_usuario=$1
+# Configura el socket de autenticación en Dovecot
+sudo sed -i '/unix_listener \/var\/spool\/postfix\/private\/auth/,/^}/d' /etc/dovecot/conf.d/10-master.conf
+sudo sed -i '/service auth {/a\
+  unix_listener /var/spool/postfix/private/auth {\n\
+    mode = 0660\n\
+    user = postfix\n\
+    group = postfix\n\
+  }' /etc/dovecot/conf.d/10-master.conf
 
-    validar_nombre_usuario "$nombre_usuario"
-    if [[ $? -ne 0 ]]; then
-        echo "No se puede crear el usuario debido a errores en el nombre."
-        return 1
-    fi
+# Reinicia Dovecot y Postfix
+sudo systemctl restart dovecot
+sudo systemctl restart postfix
 
-    echo "Creando el usuario '$nombre_usuario'..."
-    sudo adduser --gecos "" "$nombre_usuario"
-    if [[ $? -eq 0 ]]; then
-        echo "Usuario '$nombre_usuario' creado correctamente."
-        return 0
-    else
-        echo "Ocurrió un error al crear el usuario."
-        return 1
-    fi
-}
+# Registros DNS (si tienes configurado bind9 y zona propia)
+echo "reprobados.com   IN  MX  10  correo.reprobados.com." | sudo tee -a /etc/bind/zonas/db.reprobados.com
+echo "pop3 IN  CNAME   servidor" | sudo tee -a /etc/bind/zonas/db.reprobados.com
+echo "smtp IN  CNAME   servidor" | sudo tee -a /etc/bind/zonas/db.reprobados.com
+echo "correo  IN   CNAME   servidor" | sudo tee -a /etc/bind/zonas/db.reprobados.com
+sudo systemctl restart bind9
+
+# Instala SquirrelMail y sus dependencias
+sudo apt-get install squirrelmail -y
+
+# Copia archivos al directorio público de Apache
+sudo ln -s /usr/share/squirrelmail /var/www/html/squirrelmail
+
+# Configura Apache para permitir acceso
+echo "<Directory /var/www/html/squirrelmail>
+    Require all granted
+</Directory>" | sudo tee /etc/apache2/conf-available/squirrelmail.conf
+
+sudo a2enconf squirrelmail
+sudo systemctl reload apache2
+
+# Abre puertos si UFW está habilitado
+sudo ufw allow 25/tcp    # SMTP
+sudo ufw allow 110/tcp   # POP3
+sudo ufw allow 143/tcp   # IMAP
+sudo ufw allow 80/tcp    # HTTP
+
+echo ""
+echo "INSTALACIÓN COMPLETA. ACCEDE A SQUIRRELMAIL EN:"
+echo "http://$(hostname -I | awk '{print $1}')/squirrelmail"
