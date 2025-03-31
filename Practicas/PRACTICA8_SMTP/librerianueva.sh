@@ -1,5 +1,100 @@
 #!/bin/bash
 
+# Función para validar el nombre de usuario
+validar_nombre_usuario() {
+    nombre_usuario=$1
+
+    # Verificar que no esté vacío
+    if [[ -z "$nombre_usuario" ]]; then
+        echo "El nombre de usuario está vacío."
+        return 1
+    fi
+
+    # Verificar longitud máxima
+    if [[ ${#nombre_usuario} -gt 32 ]]; then
+        echo "El nombre de usuario es demasiado largo (máximo 32 caracteres)."
+        return 1
+    fi
+
+    # Verificar que no empiece con un número
+    if [[ "$nombre_usuario" =~ ^[0-9] ]]; then
+        echo "El nombre de usuario no puede comenzar con un número."
+        return 1
+    fi
+
+    # Verificar que no empiece con un guion
+    if [[ "$nombre_usuario" =~ ^- ]]; then
+        echo "El nombre de usuario no puede comenzar con un guion ('-')."
+        return 1
+    fi
+
+    # Verificar que no empiece con un punto
+    if [[ "$nombre_usuario" =~ ^\. ]]; then
+        echo "El nombre de usuario no puede comenzar con un punto ('.')."
+        return 1
+    fi
+
+    # Verificar caracteres permitidos (solo letras, números, guion bajo, guion, y punto en medio o al final)
+    if [[ "$nombre_usuario" =~ [^a-zA-Z0-9._-] ]]; then
+        echo "El nombre de usuario contiene caracteres no permitidos."
+        return 1
+    fi
+
+    # Verificar que no contenga espacios
+    if [[ "$nombre_usuario" =~ [[:space:]] ]]; then
+        echo "El nombre de usuario no puede contener espacios."
+        return 1
+    fi
+
+    # Verificar que no sea un nombre reservado
+    nombres_reservados=("root" "admin" "bin" "daemon" "www-data" "ftp" "syslog" "messagebus")
+    for nombre_reservado in "${nombres_reservados[@]}"; do
+        if [[ "$nombre_usuario" == "$nombre_reservado" ]]; then
+            echo "El nombre de usuario '$nombre_usuario' es un nombre reservado del sistema."
+            return 1
+        fi
+    done
+
+    # Verificar si el nombre de usuario ya existe
+    if getent passwd "$nombre_usuario" > /dev/null 2>&1; then
+        echo "El nombre de usuario '$nombre_usuario' ya existe en el sistema."
+        return 1
+    fi
+
+    echo "El nombre de usuario '$nombre_usuario' es válido."
+    return 0
+}
+
+validar_contraseña() {
+    local password1 password2
+
+    while true; do
+        echo "Ingrese la contraseña para el usuario $username (máximo 20 caracteres):"
+        read password1
+        echo "Confirme la contraseña:"
+        read password2
+
+        if [ -z "$password1" ]; then
+            echo "La contraseña no puede estar vacía. Intente de nuevo."
+            continue
+        fi
+
+        if [ "$password1" != "$password2" ]; then
+            echo "Las contraseñas no coinciden. Intente de nuevo."
+            continue
+        fi
+
+        if [ ${#password1} -gt 20 ]; then
+            echo "La contraseña es demasiado larga (máximo 20 caracteres). Intente de nuevo."
+            continue
+        fi
+
+        # Si pasa todas las validaciones, retornamos la contraseña
+        CONTRASENA_VALIDADA="$password1"
+        return 0
+    done
+}
+
 # Establece el nombre de host del sistema
 sudo hostnamectl set-hostname reprobados.com
 
@@ -28,14 +123,33 @@ sudo apt-get install postfix -y
 # Muestra el nombre de correo del sistema
 cat /etc/mailname
 
-# Crea usuarios
+# Crea usuarios con validación
 read -p "Ingrese el número de usuarios que desea crear: " numeroUsuarios
+
 for ((i = 1; i <= numeroUsuarios; i++)); do
-    read -p "Ingrese el nombre de usuario $i: " nombreUsuario
-    sudo adduser "${nombreUsuario}"
-    sudo mkdir -p /home/${nombreUsuario}/Maildir/{new,cur,tmp}
-    sudo chown -R ${nombreUsuario}:${nombreUsuario} /home/${nombreUsuario}/Maildir
+    # Validar nombre de usuario
+    while true; do
+        read -p "Ingrese el nombre de usuario $i: " username
+        validar_nombre_usuario "$username"
+        if [ $? -eq 0 ]; then
+            break
+        fi
+    done
+
+    # Validar contraseña
+    validar_contraseña  # Usa directamente $username internamente
+
+    # Crear usuario sin contraseña interactiva
+    sudo adduser --quiet --disabled-password --gecos "" "$username"
+
+    # Asignar contraseña
+    echo "$username:$CONTRASENA_VALIDADA" | sudo chpasswd
+
+    # Crear estructura Maildir
+    sudo mkdir -p /home/${username}/Maildir/{new,cur,tmp}
+    sudo chown -R ${username}:${username} /home/${username}/Maildir
 done
+
 
 # Instala cliente BSD Mailx (opcional para pruebas en terminal)
 sudo apt-get install bsd-mailx -y
@@ -367,3 +481,5 @@ echo ""
 echo "INSTALACIÓN COMPLETA."
 echo "Accede a SquirrelMail en:"
 echo "http://$(hostname -I | awk '{print $1}')/squirrelmail"
+
+
