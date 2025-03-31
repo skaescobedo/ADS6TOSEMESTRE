@@ -46,9 +46,8 @@ sudo apt-get install dovecot-pop3d dovecot-imapd -y
 # Muestra configuración de red
 ip a
 
-# Configura subred permitida en Postfix
-echo 'Ingrese la familia de la subred (ej. 192.168.10.0):'
-read SubnetIP
+# Configura subred permitida en Postfix automáticamente
+SubnetIP=$(ip -o -f inet addr show enp0s3 | awk '{print $4}' | cut -d'/' -f1 | awk -F. '{print $1"."$2"."$3".0"}')
 sudo sed -i "s/^mynetworks = .*/mynetworks = 127.0.0.0\/8 [::ffff:127.0.0.0]\/104 [::1]\/128 ${SubnetIP}\/24/" /etc/postfix/main.cf
 
 # Entrega de correo en formato Maildir
