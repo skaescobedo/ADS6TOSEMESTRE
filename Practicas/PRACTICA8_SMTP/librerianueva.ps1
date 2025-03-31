@@ -62,34 +62,85 @@ New-NetFirewallRule -DisplayName "SMTP (25)" -Direction Inbound -Protocol TCP -L
 New-NetFirewallRule -DisplayName "POP3 (110)" -Direction Inbound -Protocol TCP -LocalPort 110 -Action Allow
 New-NetFirewallRule -DisplayName "IMAP (143)" -Direction Inbound -Protocol TCP -LocalPort 143 -Action Allow
 
-# 4. Instalar IIS + PHP para SquirrelMail
-Install-WindowsFeature Web-Server, Web-Scripting-Tools, Web-Mgmt-Console
+# -------------------------------
+# 1. INSTALAR IIS Y MÓDULOS PHP
+# -------------------------------
+Write-Host "`nInstalando IIS y módulos necesarios..."
+Install-WindowsFeature Web-Server, Web-Scripting-Tools, Web-Mgmt-Console, Web-CGI -IncludeManagementTools
 
-# Descargar PHP
+# -------------------------------
+# 2. DESCARGAR Y CONFIGURAR PHP
+# -------------------------------
 $phpUrl = "https://windows.php.net/downloads/releases/php-7.4.33-Win32-vc15-x64.zip"
 $phpZip = "$env:TEMP\php.zip"
 $phpDir = "C:\PHP"
 
+Write-Host "Descargando PHP..."
 Invoke-WebRequest -Uri $phpUrl -OutFile $phpZip
-Expand-Archive -Path $phpZip -DestinationPath $phpDir
+Expand-Archive -Path $phpZip -DestinationPath $phpDir -Force
 
-# Configurar PHP en IIS (asume FastCGI)
-Import-Module WebAdministration
-Set-ItemProperty "IIS:\Sites\Default Web Site" -Name enabledProtocols -Value "http,net.pipe"
+# Copiar archivo ini de desarrollo como base
+Copy-Item "$phpDir\php.ini-development" "$phpDir\php.ini" -Force
 
-# 5. Descargar y configurar SquirrelMail
-$sqUrl = "https://sourceforge.net/projects/squirrelmail/files/squirrelmail-stable/1.4.22/squirrelmail-webmail-1.4.22.zip"
+# Habilitar extensiones necesarias en php.ini
+(Get-Content "$phpDir\php.ini") |
+    ForEach-Object {
+        $_ -replace ';extension=mbstring', 'extension=mbstring' `
+           -replace ';extension=imap', 'extension=imap' `
+           -replace ';extension=gettext', 'extension=gettext' `
+           -replace ';extension=openssl', 'extension=openssl'
+    } | Set-Content "$phpDir\php.ini"
+
+# -------------------------------
+# 3. REGISTRAR PHP EN IIS (FastCGI)
+# -------------------------------
+$phpCgiPath = "$phpDir\php-cgi.exe"
+& $env:windir\system32\inetsrv\appcmd.exe set config /section:system.webServer/fastCgi /+[fullPath='$phpCgiPath']
+
+# Agregar handler para archivos .php
+New-WebHandler -Name "PHP_via_FastCGI" -Path "*.php" -Verb "GET,HEAD,POST" -Modules "FastCgiModule" -ScriptProcessor $phpCgiPath -ResourceType File -PSPath "IIS:\"
+
+# -------------------------------
+# 4. DESCARGAR SQUIRRELMAIL
+# -------------------------------
+$sqUrl = "https://www.squirrelmail.org/countdl.php?fileurl=http%3A%2F%2Fprdownloads.sourceforge.net%2Fsquirrelmail%2Fsquirrelmail-webmail-1.4.22.zip"
 $sqZip = "$env:TEMP\squirrelmail.zip"
-$sqDir = "C:\inetpub\wwwroot\squirrelmail"
+$sqExtractRoot = "C:\inetpub\wwwroot"
+$sqExtracted = Join-Path $sqExtractRoot "squirrelmail-webmail-1.4.22"
+$sqDir = Join-Path $sqExtractRoot "squirrelmail"
 
-Invoke-WebRequest -Uri $sqUrl -OutFile $sqZip
-Expand-Archive -Path $sqZip -DestinationPath $sqDir
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-# Establecer permisos
+Write-Host "Descargando SquirrelMail..."
+$wc = New-Object System.Net.WebClient
+$wc.Headers.Add("user-agent", "Mozilla/5.0")
+$wc.DownloadFile($sqUrl, $sqZip)
+
+if ((Get-Item $sqZip).Length -lt 1000000) {
+    Write-Error "El archivo ZIP de SquirrelMail parece estar dañado o incompleto."
+    exit
+}
+
+Write-Host "Descomprimiendo SquirrelMail..."
+Expand-Archive -Path $sqZip -DestinationPath $sqExtractRoot -Force
+
+if (Test-Path $sqDir) {
+    Remove-Item $sqDir -Recurse -Force
+}
+Rename-Item -Path $sqExtracted -NewName "squirrelmail"
+
+# -------------------------------
+# 5. PERMISOS Y CONFIGURACIÓN BÁSICA
+# -------------------------------
 icacls $sqDir /grant "IIS_IUSRS:(OI)(CI)RX"
 
-# Crear archivo de configuracion basico para SquirrelMail
-$configFile = "$sqDir\config\config.php"
+# Crear archivo básico config.php (puede ser sobrescrito luego por configure.php)
+$configDir = "$sqDir\config"
+$configFile = "$configDir\config.php"
+
+if (!(Test-Path $configDir)) {
+    New-Item -ItemType Directory -Path $configDir | Out-Null
+}
 
 Set-Content -Path $configFile -Value @'
 <?php
@@ -104,5 +155,10 @@ $sendmail_args = '-t';
 ?>
 '@
 
-Write-Host "\nServidor de correo configurado exitosamente.\n"
-Write-Host "Puedes acceder a SquirrelMail desde: http://localhost/squirrelmail"
+# -------------------------------
+# 6. MENSAJE FINAL
+# -------------------------------
+Write-Host "`nSquirrelMail instalado correctamente."
+Write-Host "Accede desde: http://localhost/squirrelmail"
+Write-Host "Recomendación: ejecuta el configurador de SquirrelMail con:"
+Write-Host "  php config\\configure.php"
