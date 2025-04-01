@@ -123,8 +123,16 @@ sudo apt-get install postfix -y
 # Muestra el nombre de correo del sistema
 cat /etc/mailname
 
-# Crea usuarios con validación
-read -p "Ingrese el número de usuarios que desea crear: " numeroUsuarios
+while true; do
+    read -p "Ingrese el número de usuarios que desea crear: " numeroUsuarios
+    if [[ "$numeroUsuarios" =~ ^[0-9]+$ ]]; then
+        break
+    else
+        echo "Entrada inválida. Por favor, ingrese solo números."
+    fi
+done
+
+echo "Se crearán $numeroUsuarios usuarios."
 
 for ((i = 1; i <= numeroUsuarios; i++)); do
     # Validar nombre de usuario
