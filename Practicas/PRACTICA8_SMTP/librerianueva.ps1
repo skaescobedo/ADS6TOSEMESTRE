@@ -17,7 +17,10 @@ Write-Host "Extrayendo Mercury/32 en C:\..."
 Expand-Archive -Path $zipPath -DestinationPath $destPath -Force
 
 # Pedir dominio
-$dominio = Read-Host "¿Qué dominio quieres usar? (ej. miempresa.com)"
+do {
+    $dominio = Read-Host "¿Qué dominio quieres usar? (ej. miempresa.com)"
+} while ($dominio -notmatch '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+
 $nombreCorto = $dominio.Split('.')[0]
 
 # Plantilla EXACTA del archivo funcional proporcionado por el usuario
