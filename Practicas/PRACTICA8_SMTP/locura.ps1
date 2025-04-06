@@ -715,8 +715,6 @@ if (-not (Test-Path "C:\Mercury\MERCURY.INI")) {
 
     # Instalar lo demás (resto del stack)
     instalar_vc_redist
-    instalar_apache_smtp
-    instalar_php
 
     # Obtener IP antes de instalar SquirrelMail
     $ipActual = (Get-NetIPAddress -AddressFamily IPv4 |
