@@ -10,8 +10,8 @@
 # --------------------------
 DOMINIO="reprobados.com"
 REALM="REPROBADOS.COM"
-USUARIO_UNION="usuarioCuate"
 IP_SERVIDOR_AD="192.168.1.10"
+NOMBRE_SERVIDOR_AD="winserver2025"
 IP_CLIENTE="192.168.1.75"
 GATEWAY="192.168.1.254"
 INTERFAZ="enp0s3"
@@ -35,11 +35,12 @@ sudo bash -c "cat > /etc/krb5.conf <<EOF
   default_realm = $REALM
   dns_lookup_realm = true
   dns_lookup_kdc = true
+  rdns = false
 
 [realms]
   $REALM = {
-    kdc = $IP_SERVIDOR_AD
-    admin_server = $IP_SERVIDOR_AD
+    kdc = $NOMBRE_SERVIDOR_AD.$DOMINIO
+    admin_server = $NOMBRE_SERVIDOR_AD.$DOMINIO
   }
 
 [domain_realm]
@@ -103,13 +104,10 @@ echo "Configurando creación automática de directorios /home..."
 sudo sed -i '/pam_mkhomedir.so/ s/^#//' /etc/pam.d/common-session || echo "session required pam_mkhomedir.so skel=/etc/skel umask=0022" | sudo tee -a /etc/pam.d/common-session
 
 # --------------------------
-# Descubrir y unir al dominio
+# Unirse al dominio
 # --------------------------
-echo "Descubriendo el dominio $DOMINIO..."
-realm discover $DOMINIO
-
-echo "Uniéndose al dominio $DOMINIO usando la cuenta $USUARIO_UNION..."
-sudo realm join --user=$USUARIO_UNION $DOMINIO
+echo "Uniéndose al dominio $DOMINIO usando la cuenta Administrator..."
+sudo realm join --user=Administrator --membership-software=samba --client-software=sssd $DOMINIO
 
 # --------------------------
 # Permitir login a todos los usuarios del dominio
