@@ -1,5 +1,6 @@
 # ============================================
 # Script para unir automáticamente Windows 10 Pro al dominio reprobados.com
+# Ahora también desactiva IPv6 automáticamente
 # ============================================
 
 # --- Variables principales ---
@@ -9,6 +10,12 @@ $unidadOrganizativa = ""        # Dejar vacío si no quieres OU específica
 $servidorDNS = "192.168.1.10"   # IP de tu servidor AD
 $nombreEquipo = "cliente-windows"  # Cambia si quieres otro nombre
 $password = Read-Host -Prompt "Introduce la contraseña de $usuarioAD" -AsSecureString
+
+# --- Desactivar IPv6 ---
+Write-Host "Desactivando IPv6 en el adaptador de red principal..." -ForegroundColor Cyan
+Get-NetAdapter | ForEach-Object {
+    Disable-NetAdapterBinding -Name $_.Name -ComponentID ms_tcpip6 -Confirm:$false
+}
 
 # --- Configurar DNS manualmente ---
 Write-Host "Configurando el DNS para que apunte al servidor AD..." -ForegroundColor Cyan

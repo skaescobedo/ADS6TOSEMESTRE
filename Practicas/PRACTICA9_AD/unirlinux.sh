@@ -1,8 +1,7 @@
-#!/bin/bash
-
 # ===============================================
 # Script para unir Ubuntu Server 22.04 al dominio reprobados.com
-# Configura Kerberos, IP fija, asegura SSSD activo, configura resolv.conf y permite login en consola
+# Configura Kerberos, IP fija, asegura SSSD activo, configura resolv.conf,
+# configura correctamente pam_mkhomedir y permite login en consola
 # ===============================================
 
 # --------------------------
@@ -91,17 +90,57 @@ EOF"
 echo "Archivo /etc/resolv.conf configurado correctamente."
 
 # --------------------------
-# Activar y asegurar servicio SSSD
+# Configurar /etc/pam.d/common-session exactamente como debe ser
 # --------------------------
-echo "Habilitando y arrancando el servicio sssd..."
-sudo systemctl enable sssd
-sudo systemctl start sssd
+echo "Configurando /etc/pam.d/common-session..."
+
+sudo bash -c "cat > /etc/pam.d/common-session" << 'EOF'
+# /etc/pam.d/common-session - session-related modules common to all services
+#
+# This file is included from other service-specific PAM config files,
+# and should contain a list of modules that define tasks to be performed
+# at the start and end of interactive sessions.
+#
+# As of pam 1.0.1-6, this file is managed by pam-auth-update by default.
+# To take advantage of this, it is recommended that you configure any
+# local modules either before or after the default block, and use
+# pam-auth-update to manage selection of other modules. See
+# pam-auth-update(8) for details.
+
+# here are the per-package modules (the "Primary" block)
+session    [default=1]    pam_permit.so
+# here's the fallback if no module succeeds
+session    requisite    pam_deny.so
+# prime the stack with a positive return value if there isn't one already;
+# this avoids us returning an error just because nothing sets a success code
+# since the modules above will each just jump around
+session    required    pam_permit.so
+# The pam_umask module will set the umask according to the system default in
+# /etc/login.defs and user settings, solving the problem of different
+# umask settings with different shells, display managers, remote sessions etc.
+# See "man pam_umask".
+session    optional    pam_umask.so
+
+# and here are more per-package modules (the "Additional" block)
+session    required    pam_unix.so
+session    required    pam_sss.so
+session    required    pam_mkhomedir.so skel=/etc/skel/ umask=0022
+session    optional    pam_systemd.so
+# end of pam-auth-update config
+EOF
+
+echo "Archivo /etc/pam.d/common-session configurado correctamente."
 
 # --------------------------
-# Configurar creación automática de directorios HOME
+# Reiniciar servicios críticos
 # --------------------------
-echo "Configurando creación automática de directorios /home..."
-sudo sed -i '/pam_mkhomedir.so/ s/^#//' /etc/pam.d/common-session || echo "session required pam_mkhomedir.so skel=/etc/skel umask=0022" | sudo tee -a /etc/pam.d/common-session
+echo "Reiniciando servicios sssd y systemd-logind..."
+sudo systemctl restart sssd
+sudo systemctl restart systemd-logind
+
+echo "Servicios reiniciados correctamente."
+# --------------------------
+
 
 # --------------------------
 # Unirse al dominio
@@ -125,15 +164,12 @@ realm list
 # Mensaje final
 # --------------------------
 echo "====================================================="
-echo "¡Listo! El servidor está unido al dominio $DOMINIO."
-echo ""
+echo "\n¡Listo! El servidor está unido al dominio $DOMINIO.\n"
 echo "Ahora puedes iniciar sesión en consola como:"
 echo "  - usuarioCuate@$DOMINIO"
 echo "  - usuarioNoCuate@$DOMINIO"
-echo ""
-echo "Ejemplo en consola (en la pantalla negra del server):"
+echo "\nEjemplo en consola (en la pantalla negra del server):"
 echo "  Login: usuarioCuate@reprobados.com"
 echo "  Password: P@ssw0rd123"
-echo ""
-echo "Al iniciar sesión, se creará automáticamente su directorio /home."
+echo "\nAl iniciar sesión, se creará automáticamente su directorio /home." 
 echo "====================================================="
