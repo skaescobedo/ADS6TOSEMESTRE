@@ -154,6 +154,47 @@ sudo realm join --user=Administrator --membership-software=samba --client-softwa
 echo "Permitiremos el login a todos los usuarios de $DOMINIO..."
 sudo realm permit --all
 
+echo "Configurando /etc/sssd/sssd.conf correctamente para permitir usuarios locales y dominio..."
+
+sudo bash -c "cat > /etc/sssd/sssd.conf <<EOF
+[sssd]
+domains = reprobados.com
+config_file_version = 2
+services = nss, pam
+
+[domain/reprobados.com]
+ad_domain = reprobados.com
+krb5_realm = REPROBADOS.COM
+realmd_tags = manages-system joined-with-samba
+cache_credentials = True
+id_provider = ad
+auth_provider = ad
+chpass_provider = ad
+access_provider = ad
+ldap_id_mapping = True
+fallback_homedir = /home/%u
+default_shell = /bin/bash
+EOF"
+
+sudo chmod 600 /etc/sssd/sssd.conf
+
+echo "Reiniciando sssd para aplicar nueva configuración..."
+sudo systemctl restart sssd
+
+
+echo "Actualizando PAM para asegurar creación automática de /home en login..."
+sudo pam-auth-update --force
+
+echo "Si el usuario local no tiene home, creándolo manualmente..."
+if [ ! -d "/home/luis" ]; then
+    sudo mkdir -p /home/luis
+    sudo chown luis:luis /home/luis
+    echo "Directorio /home/luis creado manualmente."
+else
+    echo "Directorio /home/luis ya existe."
+fi
+
+
 # --------------------------
 # Confirmación de la unión
 # --------------------------
