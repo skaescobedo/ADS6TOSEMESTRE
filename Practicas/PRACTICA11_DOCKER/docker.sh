@@ -26,32 +26,47 @@ sudo docker exec apache-container bash -c 'cat > /usr/local/apache2/htdocs/index
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Página para los Reprobados</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PERO QUE DISTINGUIDO PEDRI</title>
     <style>
         body {
-            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f4f4f4;
-            color: #333;
             text-align: center;
-            padding-top: 10%;
+            background-color: #004c98;
+            color: white;
+            font-family: Arial, sans-serif;
         }
         h1 {
-            font-size: 3em;
-            color: #c0392b;
+            margin-top: 20px;
+            font-size: 28px;
+            font-weight: bold;
         }
-        .subtitle {
-            font-size: 1.2em;
-            color: #7f8c8d;
+        marquee {
+            margin-top: 50px;
+        }
+        img {
+            width: 300px;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0px 0px 10px rgba(255, 255, 255, 0.5);
+            margin: 0 20px;
         }
     </style>
 </head>
 <body>
-    <h1>Página para los Reprobados</h1>
-    <p class="subtitle">No te preocupes... ¡Siempre hay una segunda oportunidad!</p>
+    <h1>PERO QUE DISTINGUIDO PEDRI</h1>
+    <marquee behavior="scroll" direction="left" scrollamount="10">
+        <img src="https://upload.wikimedia.org/wikipedia/en/4/47/FC_Barcelona_%28crest%29.svg" 
+             alt="Escudo del FC Barcelona">
+        <img src="https://pbs.twimg.com/media/E5ZP9L2X0Ak8gN2.jpg:large" 
+             alt="Imagen del FC Barcelona">
+        <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSbFMCtfPdNYbLQL0fCGC_ntQuypliAFhJmcg&s" 
+             alt="Pedri Distinguido">
+    </marquee>
 </body>
 </html>
 EOF'
-echo "Página modificada correctamente."
+echo "Página personalizada de Apache actualizada con éxito."
+
 
 # Crear una imagen personalizada de Apache con el contenido modificado
 sudo docker commit apache-container custom-apache:latest
